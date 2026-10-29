@@ -84,12 +84,17 @@ export function ImportDialog({ onClose, onImport }: Props) {
           <div className="space-y-4">
             <ol className="list-decimal space-y-1.5 pl-5 text-sm text-neutral-700 dark:text-neutral-300">
               <li>
-                In Instagram, open <b>Settings → Accounts Center → Your information and permissions → Download your information</b>.
+                In Instagram, open <b>Settings → Accounts Center</b> (or <b>Meta Account</b>) <b>→ Your information and permissions → Export your information → Create export</b>.
               </li>
               <li>
-                Choose <b>Some of your information</b> and tick <b>Saved</b>. Pick <b>Download to device</b>, date range <b>All time</b>, format <b>JSON</b> (HTML works too).
+                Pick your Instagram profile, then <b>Export to device</b>.
               </li>
-              <li>Instagram emails you when it&apos;s ready — usually minutes, sometimes a day or two.</li>
+              <li>
+                Choose only your <b>saved posts and collections</b> for a small, quick export. Set the date range to <b>All time</b>, the format to <b>JSON</b> (HTML works too) and media quality to <b>low</b>, then tap <b>Start export</b>.
+              </li>
+              <li>
+                Instagram emails you when it&apos;s ready. That&apos;s often within the hour, but Meta says it can take up to 30 days. The download link works for 4 days.
+              </li>
               <li>Download the zip and drop it below. No need to unzip it.</li>
             </ol>
 
