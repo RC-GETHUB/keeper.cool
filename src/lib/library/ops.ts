@@ -12,7 +12,9 @@ function touch(lib: Library, patch: Partial<Library>): Library {
 }
 
 function newId(): string {
-  return `c_${crypto.randomUUID().slice(0, 8)}`;
+  // randomUUID only exists on https and localhost.
+  const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  return `c_${random.slice(0, 8)}`;
 }
 
 export interface MergeSummary {

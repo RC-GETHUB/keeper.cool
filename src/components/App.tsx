@@ -63,6 +63,7 @@ export function App() {
   const [addMenu, setAddMenu] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
   const [saveError, setSaveError] = useState(false);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Load once, then save (debounced) after every change.
@@ -219,15 +220,21 @@ export function App() {
     URL.revokeObjectURL(a.href);
   };
 
-  const reset = () => {
-    if (!confirm("Delete your whole Keeper library from this device? Your Instagram account isn't touched.")) return;
-    clearLibrary().finally(() => {
-      loaded.current = null;
-      setHistory([]);
-      setLib(emptyLibrary());
-      changeScope({ type: "all" });
+  const reset = () =>
+    setConfirming({
+      title: "Delete your library?",
+      message: "This removes every bookmark, name and collection from Keeper on this device. Your Instagram account isn't touched.",
+      action: "Delete library",
+      run: () =>
+        clearLibrary()
+          .catch(() => undefined)
+          .finally(() => {
+            loaded.current = null;
+            setHistory([]);
+            setLib(emptyLibrary());
+            changeScope({ type: "all" });
+          }),
     });
-  };
 
   const tryCollection = (fn: () => Library, message?: string): string | null => {
     try {
@@ -315,9 +322,13 @@ export function App() {
             onRenameCollection={(id, name) => tryCollection(() => renameCollection(lib, id, name))}
             onDeleteCollection={(id) => {
               const c = lib.collections.find((x) => x.id === id);
-              if (c && confirm(`Delete the collection “${c.name}”? Its ${plural(c.items.length, "bookmark")} stay in All bookmarks.`)) {
-                commit(deleteCollection(lib, id), `Deleted “${c.name}”`);
-              }
+              if (!c) return;
+              setConfirming({
+                title: `Delete “${c.name}”?`,
+                message: `Its ${plural(c.items.length, "bookmark")} stay in All bookmarks. You can undo this.`,
+                action: "Delete collection",
+                run: () => commit(deleteCollection(lib, id), `Deleted “${c.name}”`),
+              });
             }}
             onBackup={backup}
             onReset={reset}
@@ -475,6 +486,7 @@ export function App() {
       </div>
 
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importResult} />}
+      {confirming && <ConfirmDialog {...confirming} onClose={() => setConfirming(null)} />}
 
       {(toast || saveError) && (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
@@ -488,6 +500,52 @@ export function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface Confirmation {
+  title: string;
+  message: string;
+  action: string;
+  run: () => void;
+}
+
+function ConfirmDialog({ title, message, action, run, onClose }: Confirmation & { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900"
+      >
+        <h2 id="confirm-title" className="font-semibold">
+          {title}
+        </h2>
+        <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">{message}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className={ghostButton} onClick={onClose} autoFocus>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+            onClick={() => {
+              run();
+              onClose();
+            }}
+          >
+            {action}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
