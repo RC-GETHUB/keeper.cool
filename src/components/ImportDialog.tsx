@@ -84,7 +84,7 @@ export function ImportDialog({ onClose, onImport }: Props) {
           <div className="space-y-4">
             <ol className="list-decimal space-y-1.5 pl-5 text-sm text-neutral-700 dark:text-neutral-300">
               <li>
-                In Instagram, open <b>Settings → Accounts Center</b> (or <b>Meta Account</b>) <b>→ Your information and permissions → Export your information → Create export</b>.
+                Open Instagram&apos;s <b>Settings</b> (on instagram.com, it&apos;s under <b>More</b> at the bottom left), then <b>Accounts Center</b> (or <b>Meta Account</b>) <b>→ Your information and permissions → Export your information → Create export</b>.
               </li>
               <li>
                 Pick your Instagram profile, then <b>Export to device</b>.
