@@ -10,6 +10,7 @@ import {
   moveCollection,
   moveItems,
   orderCollections,
+  markSeen,
   canRestoreInstagramOrder,
   restoreCollectionOrder,
   restoreInstagramOrder,
@@ -159,7 +160,7 @@ describe("viewing", () => {
 
   it("counts everything", () => {
     const library = lib();
-    expect(countLibrary(library)).toEqual({ total: 3, unfiled: 1, collections: { [library.collections[0].id]: 2 } });
+    expect(countLibrary(library)).toEqual({ total: 3, unfiled: 1, fresh: 0, collections: { [library.collections[0].id]: 2 } });
   });
 });
 
@@ -273,5 +274,26 @@ describe("restore Instagram's order", () => {
     let lib = mergeImport(emptyLibrary(), result([bm("a", { savedAt: 3 }), bm("b", { savedAt: 2 }), bm("c", { savedAt: 1 })])).library;
     lib = { ...applyOrder(lib, null, ["c", "a", "b"]), instagramOrder: undefined };
     expect(restoreInstagramOrder(lib, null).order).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("new since the last import", () => {
+  it("flags posts and collections from later imports until marked seen", () => {
+    let lib = mergeImport(emptyLibrary(), result([bm("a"), bm("b")], [{ name: "One", items: ["a"] }])).library;
+    expect(Object.values(lib.bookmarks).some((b) => b.isNew)).toBe(false);
+    lib = mergeImport(lib, result([bm("c"), bm("a"), bm("b")], [{ name: "One", items: ["a"] }, { name: "Two", items: ["c"] }])).library;
+    expect(lib.bookmarks.c.isNew).toBe(true);
+    expect(lib.bookmarks.a.isNew).toBeUndefined();
+    expect(lib.collections.map((c) => [c.name, c.isNew])).toEqual([["One", undefined], ["Two", true]]);
+    expect(countLibrary(lib).fresh).toBe(1);
+    expect(viewIds(lib, { scope: { type: "new" }, sort: "custom", query: "" })).toEqual(["c"]);
+
+    const seenTwo = markSeen(lib, [lib.collections[1].id]);
+    expect(seenTwo.collections[1].isNew).toBeUndefined();
+    expect(seenTwo.bookmarks.c.isNew).toBe(true);
+    const seen = markSeen(lib);
+    expect(countLibrary(seen).fresh).toBe(0);
+    expect(seen.collections.every((c) => !c.isNew)).toBe(true);
+    expect(markSeen(seen)).toBe(seen);
   });
 });

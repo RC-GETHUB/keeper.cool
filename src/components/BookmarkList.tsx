@@ -30,6 +30,8 @@ interface Props {
   membership: Map<string, string[]>;
   duplicates: DuplicateReport;
   showCollections: boolean;
+  /** Duplicate badges, shown only where they're the point (the Possible duplicates view). */
+  showDuplicates: boolean;
 }
 
 interface DragState {
@@ -274,8 +276,8 @@ export function BookmarkList(props: Props) {
         dimmed={dragging?.has(bookmark.id) ?? false}
         collections={props.showCollections || props.duplicates.inCollections.has(bookmark.id) ? props.membership.get(bookmark.id) : undefined}
         showCollections={props.showCollections}
-        inSeveral={props.duplicates.inCollections.has(bookmark.id)}
-        lookalikes={(props.duplicates.groupOf.get(bookmark.id)?.length ?? 1) - 1}
+        inSeveral={props.showDuplicates && props.duplicates.inCollections.has(bookmark.id)}
+        lookalikes={props.showDuplicates ? (props.duplicates.groupOf.get(bookmark.id)?.length ?? 1) - 1 : 0}
         handlers={handlers}
       />,
     );
@@ -366,7 +368,7 @@ const Row = memo(function Row({
       onClick={(e) => h.select(bookmark.id, index, e.shiftKey)}
       onClickCapture={h.clickGuard}
       onPointerDown={(e) => h.rowDown(e, bookmark.id)}
-      className={`absolute inset-x-0 flex items-center gap-2 border-b select-none border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${
+      className={`group absolute inset-x-0 flex items-center gap-2 border-b select-none border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${
         isSelected ? "bg-accent-soft dark:bg-accent/15" : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
       } ${previewing ? "shadow-[inset_3px_0_0_var(--color-accent)]" : ""} ${dimmed ? "opacity-40" : ""}`}
       style={{ top: index * ROW, height: ROW }}
@@ -392,7 +394,7 @@ const Row = memo(function Row({
             target?.querySelector<HTMLElement>(`[data-id="${bookmark.id}"] button`)?.focus(),
           );
         }}
-        className="flex h-full w-7 shrink-0 touch-none items-center justify-center text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+        className="hidden h-full w-7 shrink-0 touch-none items-center justify-center text-neutral-400 hover:text-neutral-700 pointer-coarse:flex dark:hover:text-neutral-200"
       >
         <GripVertical className="size-4" />
       </button>
@@ -428,8 +430,11 @@ const Row = memo(function Row({
             onCancel={() => h.setRenaming(null)}
           />
         ) : (
-          <p className="truncate text-sm font-medium" onDoubleClick={() => h.setRenaming(bookmark.id)} title={heading}>
-            {heading}
+          <p className="flex items-center gap-1.5 text-sm font-medium" onDoubleClick={() => h.setRenaming(bookmark.id)} title={heading}>
+            <span className="truncate">{heading}</span>
+            {bookmark.isNew && (
+              <span className="shrink-0 rounded bg-accent px-1 text-[10px] font-semibold text-white uppercase">New</span>
+            )}
           </p>
         )}
         {caption && (
@@ -465,6 +470,8 @@ const Row = memo(function Row({
           )}
         </p>
       </div>
+      {/* Row tools appear on hover (always shown on touch screens). */}
+      <span className="flex shrink-0 items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
       <button
         type="button"
         onClick={(e) => {
@@ -500,6 +507,7 @@ const Row = memo(function Row({
       >
         <ExternalLink className="size-4" />
       </a>
+      </span>
     </div>
   );
 });

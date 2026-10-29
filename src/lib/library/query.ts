@@ -7,6 +7,7 @@ export type Scope =
   | { type: "all" }
   | { type: "collection"; id: string }
   | { type: "unfiled" }
+  | { type: "new" }
   | { type: "duplicates" };
 
 const KIND_LABEL = { post: "Post", reel: "Reel", tv: "Video" } as const;
@@ -103,6 +104,8 @@ export function baseIds(lib: Library, scope: Scope, duplicates?: DuplicateReport
       const filed = filedIds(lib);
       return lib.order.filter((id) => !filed.has(id));
     }
+    case "new":
+      return lib.order.filter((id) => lib.bookmarks[id]?.isNew);
     case "duplicates": {
       // Look-alike groups side by side, then posts filed in several collections.
       if (!duplicates) return [];
@@ -162,6 +165,8 @@ export function viewIds(lib: Library, { scope, sort, query, duplicates }: ViewOp
 export interface Counts {
   total: number;
   unfiled: number;
+  /** Bookmarks flagged as new since an earlier import. */
+  fresh: number;
   collections: Record<string, number>;
 }
 
@@ -169,7 +174,9 @@ export function countLibrary(lib: Library): Counts {
   const filed = filedIds(lib);
   const collections: Record<string, number> = {};
   for (const c of lib.collections) collections[c.id] = c.items.length;
-  return { total: lib.order.length, unfiled: lib.order.length - filed.size, collections };
+  let fresh = 0;
+  for (const id of lib.order) if (lib.bookmarks[id]?.isNew) fresh++;
+  return { total: lib.order.length, unfiled: lib.order.length - filed.size, fresh, collections };
 }
 
 export type CollectionSort = "custom" | "az" | "za" | "recent" | "newest" | "oldest" | "size";

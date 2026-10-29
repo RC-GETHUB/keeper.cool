@@ -15,6 +15,8 @@ export interface Bookmark {
   savedAt?: number;
   /** The user's own name for it. Lives only in Keeper: Instagram has no bookmark names. */
   title?: string;
+  /** Came in with an import after the first one, and not yet marked as seen. */
+  isNew?: true;
 }
 
 export interface Collection {
@@ -31,6 +33,8 @@ export interface Collection {
   items: string[];
   /** Its posts in Instagram's order at the last import, for "Restore Instagram's order". */
   instagramItems?: string[];
+  /** Came in with an import after the first one, and not yet marked as seen. */
+  isNew?: true;
 }
 
 export interface Library {
@@ -73,4 +77,6 @@ export interface ImportResult {
   warnings: string[];
   /** Set when the import came from the extension. */
   account?: InstagramAccount;
+  /** Only new saves, not the whole list: Instagram's full order is unknown. */
+  partial?: boolean;
 }

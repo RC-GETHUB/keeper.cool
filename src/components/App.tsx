@@ -3,13 +3,12 @@
 import {
   ArrowDownToLine,
   ArrowUpToLine,
-  Check,
   FolderMinus,
   FolderPlus,
   Loader2,
   Menu,
   Pause,
-  RotateCcw,
+  Puzzle,
   Search,
   Send,
   Trash2,
@@ -30,6 +29,7 @@ import {
   moveCollection,
   moveItems,
   orderCollections,
+  markSeen,
   canRestoreInstagramOrder,
   restoreCollectionOrder,
   restoreInstagramOrder,
@@ -39,7 +39,8 @@ import {
   renameCollection,
 } from "@/lib/library/ops";
 import { countLibrary, viewIds, type CollectionSort, type Scope, type SortMode } from "@/lib/library/query";
-import { useExtension } from "@/lib/extension";
+import { readNewSaves, useExtension, type ExtensionState } from "@/lib/extension";
+import { mergeNewSaves } from "@/lib/instagram-read";
 import { clearLibrary, loadLibrary, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
 import type { ImportResult, Library } from "@/lib/types";
@@ -50,12 +51,16 @@ import { PushDialog } from "./PushDialog";
 import { Sidebar } from "./Sidebar";
 import { Popover, fmtCount, ghostButton, menuItem, plural, primaryButton } from "./ui";
 
-const SORTS: { value: SortMode; label: string }[] = [
-  { value: "custom", label: "Custom order" },
-  { value: "az", label: "Name A–Z" },
-  { value: "za", label: "Name Z–A" },
-  { value: "newest", label: "Newest saved" },
-  { value: "oldest", label: "Oldest saved" },
+type Arrangement = SortMode | "instagram";
+
+/** "Arrange" sets the order for good (undoable); there's one order per list, the one dragging edits and Sync sends to Instagram. */
+const ARRANGEMENTS: { value: Arrangement; label: string; done: string }[] = [
+  { value: "custom", label: "Your order", done: "" },
+  { value: "az", label: "Name A–Z", done: "Arranged A–Z" },
+  { value: "za", label: "Name Z–A", done: "Arranged Z–A" },
+  { value: "newest", label: "Newest saved first", done: "Newest saved first" },
+  { value: "oldest", label: "Oldest saved first", done: "Oldest saved first" },
+  { value: "instagram", label: "Instagram's order", done: "Back in Instagram's order" },
 ];
 
 const HISTORY = 50;
@@ -74,13 +79,15 @@ export function App() {
   const [lib, setLib] = useState<Library | null>(null);
   const [history, setHistory] = useState<Library[]>([]);
   const [scope, setScope] = useState<Scope>({ type: "all" });
-  const [sort, setSort] = useState<SortMode>("custom");
+  // Which arrangement was last applied to the open list, until the user drags.
+  const [arranged, setArranged] = useState<Arrangement>("custom");
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<number | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
+  const [autoImport, setAutoImport] = useState(false);
   const extension = useExtension();
   const [drawer, setDrawer] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
@@ -117,6 +124,33 @@ export function App() {
     const timer = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // With the extension, pick up posts saved on Instagram since the last
+  // visit: once per page load, and not while a sync is running.
+  const libRef = useRef(lib);
+  libRef.current = lib;
+  const refreshed = useRef(false);
+  useEffect(() => {
+    const current = libRef.current;
+    if (refreshed.current || !current?.instagram || current.order.length === 0 || extension.status !== "ready") return;
+    if (extension.job && (extension.job.status === "running" || extension.job.status === "waiting")) return;
+    refreshed.current = true;
+    const known = (current.instagramOrder?.length ? current.instagramOrder : current.order).slice(0, 60);
+    readNewSaves(known, (items) => setLib((prev) => prev && applyThumbnails(prev, items))).then(
+      (read) => {
+        const latest = libRef.current;
+        if (!latest || read.account.userId !== latest.instagram?.userId) return;
+        const { library, added } = mergeNewSaves(latest, read);
+        if (!added) return;
+        setHistory((h) => [...h.slice(-(HISTORY - 1)), latest]);
+        setLib(library);
+        setToast({ message: `${plural(added, "new save")} from Instagram`, undo: true });
+      },
+      () => {
+        // Not logged in, offline or Instagram busy: try again next visit.
+      },
+    );
+  }, [lib, extension.status, extension.job]);
 
   const commit = useCallback(
     (next: Library, message?: string) => {
@@ -158,10 +192,10 @@ export function App() {
   }, [lib, scope]);
 
   const duplicates = useMemo(() => findDuplicates(lib ?? emptyLibrary()), [lib?.bookmarks, lib?.collections, lib?.order]); // eslint-disable-line react-hooks/exhaustive-deps
-  const counts = useMemo(() => countLibrary(lib ?? emptyLibrary()), [lib?.order, lib?.collections]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => countLibrary(lib ?? emptyLibrary()), [lib?.order, lib?.collections, lib?.bookmarks]); // eslint-disable-line react-hooks/exhaustive-deps
   const ids = useMemo(
-    () => (lib ? viewIds(lib, { scope, sort, query: deferredQuery, duplicates }) : []),
-    [lib, scope, sort, deferredQuery, duplicates],
+    () => (lib ? viewIds(lib, { scope, sort: "custom", query: deferredQuery, duplicates }) : []),
+    [lib, scope, deferredQuery, duplicates],
   );
   const membership = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -185,28 +219,37 @@ export function App() {
 
   const collectionId = scope.type === "collection" ? scope.id : null;
   const ordered = scope.type === "all" || scope.type === "collection";
-  const canDrag = ordered && sort === "custom" && !deferredQuery;
+  const canDrag = ordered && !deferredQuery;
   const scopeName =
     scope.type === "all"
       ? "All bookmarks"
       : scope.type === "unfiled"
         ? "Not in a collection"
-        : scope.type === "duplicates"
-          ? "Possible duplicates"
-          : (lib.collections.find((c) => c.id === scope.id)?.name ?? "");
+        : scope.type === "new"
+          ? "New since your last import"
+          : scope.type === "duplicates"
+            ? "Possible duplicates"
+            : (lib.collections.find((c) => c.id === scope.id)?.name ?? "");
   const scopeTotal =
     scope.type === "all"
       ? counts.total
       : scope.type === "unfiled"
         ? counts.unfiled
-        : scope.type === "duplicates"
-          ? duplicates.flagged.size
-          : (counts.collections[scope.id] ?? 0);
+        : scope.type === "new"
+          ? counts.fresh
+          : scope.type === "duplicates"
+            ? duplicates.flagged.size
+            : (counts.collections[scope.id] ?? 0);
   const selection = ids.filter((id) => selected.has(id));
-  const viewKey = JSON.stringify([scope, sort]);
+  const viewKey = JSON.stringify([scope, arranged]);
 
   const changeScope = (next: Scope) => {
+    // Opening a new collection counts as seeing it.
+    if (next.type === "collection" && lib.collections.find((c) => c.id === next.id)?.isNew) {
+      setLib(markSeen(lib, [next.id]));
+    }
     setScope(next);
+    setArranged("custom");
     setSelected(new Set());
     anchor.current = null;
     setDrawer(false);
@@ -259,6 +302,18 @@ export function App() {
             changeScope({ type: "all" });
           }),
     });
+
+  const arrange = (mode: Arrangement) => {
+    setArranged(mode);
+    if (mode === "custom") return;
+    const next =
+      mode === "instagram"
+        ? restoreInstagramOrder(lib, collectionId)
+        : applyOrder(lib, collectionId, viewIds(lib, { scope, sort: mode, query: "", duplicates }));
+    const label = ARRANGEMENTS.find((a) => a.value === mode)!;
+    if (next === lib) setToast({ message: `Already in that order`, undo: false });
+    else commit(next, label.done);
+  };
 
   const tryCollection = (fn: () => Library, message?: string): string | null => {
     try {
@@ -313,21 +368,21 @@ export function App() {
         </button>
         <div className="hidden lg:block">
           {extension.job && ["running", "waiting", "paused", "blocked"].includes(extension.job.status) ? (
-            <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Push progress">
+            <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Sync progress">
               {extension.job.status === "blocked" || extension.job.status === "paused" ? (
                 <Pause className="size-4" />
               ) : (
                 <Loader2 className="size-4 animate-spin" />
               )}
-              Pushing {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
+              Syncing {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
             </button>
           ) : extension.status === "ready" ? (
             <button type="button" onClick={() => setPushOpen(true)} disabled={empty} className={primaryButton}>
-              <Send className="size-4" /> Push to Instagram
+              <Send className="size-4" /> Sync to Instagram
             </button>
           ) : (
-            <a href="/extension" className={primaryButton} title="Pushing to Instagram needs the Keeper extension">
-              <Send className="size-4" /> Push to Instagram
+            <a href="/extension" className={primaryButton} title="Syncing to Instagram needs the Keeper extension">
+              <Send className="size-4" /> Sync to Instagram
             </a>
           )}
         </div>
@@ -375,7 +430,15 @@ export function App() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           {empty ? (
-            <Welcome onImport={() => setImportOpen(true)} onSample={loadSample} />
+            <Welcome
+              extension={extension}
+              onImport={() => {
+                setAutoImport(true);
+                setImportOpen(true);
+              }}
+              onExport={() => setImportOpen(true)}
+              onSample={loadSample}
+            />
           ) : (
             <>
               <div className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 px-3 py-2 sm:px-4 dark:border-neutral-800">
@@ -426,16 +489,27 @@ export function App() {
                         <FolderMinus className="size-4" /> <span className="hidden sm:inline">Remove from collection</span>
                       </button>
                     )}
-                    {ordered && sort === "custom" && (
+                    {ordered && (
                       <>
-                        <button type="button" className={ghostButton} title="Move to top" onClick={() => commit(moveItems(lib, collectionId, selection, 0))}>
+                        <button
+                          type="button"
+                          className={ghostButton}
+                          title="Move to top"
+                          onClick={() => {
+                            commit(moveItems(lib, collectionId, selection, 0));
+                            setArranged("custom");
+                          }}
+                        >
                           <ArrowUpToLine className="size-4" /> <span className="hidden lg:inline">Top</span>
                         </button>
                         <button
                           type="button"
                           className={ghostButton}
                           title="Move to bottom"
-                          onClick={() => commit(moveItems(lib, collectionId, selection, Number.MAX_SAFE_INTEGER))}
+                          onClick={() => {
+                            commit(moveItems(lib, collectionId, selection, Number.MAX_SAFE_INTEGER));
+                            setArranged("custom");
+                          }}
                         >
                           <ArrowDownToLine className="size-4" /> <span className="hidden lg:inline">Bottom</span>
                         </button>
@@ -465,46 +539,33 @@ export function App() {
                   </div>
                 )}
                 <div className="ml-auto flex items-center gap-2">
-                  {ordered && canRestoreInstagramOrder(lib, collectionId) && (
+                  {scope.type === "new" && selection.length === 0 && (
                     <button
                       type="button"
                       className={ghostButton}
-                      title="Put this list back in the order Instagram had it at your last import"
                       onClick={() => {
-                        const next = restoreInstagramOrder(lib, collectionId);
-                        setSort("custom");
-                        if (next === lib) setToast({ message: "Already in Instagram's order", undo: false });
-                        else commit(next, "Back in Instagram's order");
+                        commit(markSeen(lib), "Marked everything as seen");
+                        changeScope({ type: "all" });
                       }}
                     >
-                      <RotateCcw className="size-4" /> <span className="hidden xl:inline">Instagram&apos;s order</span>
+                      Mark all as seen
                     </button>
                   )}
-                  {ordered && sort !== "custom" && (
-                    <button
-                      type="button"
-                      className={ghostButton}
-                      title="Make this the custom order (the order that gets pushed to Instagram)"
-                      onClick={() => {
-                        commit(applyOrder(lib, collectionId, ids), `Saved ${SORTS.find((s) => s.value === sort)!.label} as your order`);
-                        setSort("custom");
-                      }}
+                  {ordered && (
+                    <select
+                      value={arranged}
+                      onChange={(e) => arrange(e.target.value as Arrangement)}
+                      aria-label="Sort"
+                      title="Arrange this list. It becomes your order: drag to fine-tune, Undo to go back."
+                      className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-sm dark:border-neutral-800 dark:bg-neutral-900"
                     >
-                      <Check className="size-4" /> <span className="hidden sm:inline">Keep this order</span>
-                    </button>
+                      {ARRANGEMENTS.filter((a) => a.value !== "instagram" || canRestoreInstagramOrder(lib, collectionId)).map((a) => (
+                        <option key={a.value} value={a.value}>
+                          {a.value === "custom" ? a.label : `Arrange: ${a.label}`}
+                        </option>
+                      ))}
+                    </select>
                   )}
-                  <select
-                    value={sort}
-                    onChange={(e) => setSort(e.target.value as SortMode)}
-                    aria-label="Sort"
-                    className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-sm dark:border-neutral-800 dark:bg-neutral-900"
-                  >
-                    {SORTS.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
 
@@ -512,7 +573,9 @@ export function App() {
                 <p className="p-8 text-center text-sm text-neutral-500">
                   {deferredQuery
                     ? `Nothing matches “${deferredQuery}”.`
-                    : scope.type === "duplicates"
+                    : scope.type === "new"
+                      ? "Nothing new. Posts and collections that arrive with a later import show up here."
+                      : scope.type === "duplicates"
                       ? "No duplicates found. Posts filed in several collections and look-alike posts show up here."
                       : scope.type === "collection"
                         ? "This collection is empty. Select bookmarks and use Add to collection."
@@ -526,7 +589,10 @@ export function App() {
                   selected={selected}
                   onSelect={select}
                   canDrag={canDrag}
-                  onMove={(moving, toIndex) => commit(moveItems(lib, collectionId, moving, toIndex))}
+                  onMove={(moving, toIndex) => {
+                    commit(moveItems(lib, collectionId, moving, toIndex));
+                    setArranged("custom");
+                  }}
                   onDropToCollection={(moving, id) => {
                     const c = lib.collections.find((x) => x.id === id);
                     const already = c ? moving.filter((x) => c.items.includes(x)).length : 0;
@@ -538,6 +604,7 @@ export function App() {
                   membership={membership}
                   duplicates={duplicates}
                   showCollections={scope.type !== "collection"}
+                  showDuplicates={scope.type === "duplicates"}
                   previewId={previewId}
                   onPreview={setPreviewId}
                 />
@@ -564,7 +631,11 @@ export function App() {
       {importOpen && (
         <ImportDialog
           extension={extension}
-          onClose={() => setImportOpen(false)}
+          autoStart={autoImport}
+          onClose={() => {
+            setImportOpen(false);
+            setAutoImport(false);
+          }}
           onImport={importResult}
           onThumbs={(items) => setLib((prev) => prev && applyThumbnails(prev, items))}
         />
@@ -685,19 +756,61 @@ function AddToCollectionMenu({
   );
 }
 
-function Welcome({ onImport, onSample }: { onImport: () => void; onSample: (size: number) => void }) {
+function Welcome({
+  extension,
+  onImport,
+  onExport,
+  onSample,
+}: {
+  extension: ExtensionState;
+  onImport: () => void;
+  onExport: () => void;
+  onSample: (size: number) => void;
+}) {
+  const ready = extension.status === "ready";
+  const steps = [
+    { label: "Add Keeper to Chrome", done: ready },
+    { label: "Bring in your saves", done: false },
+    { label: "Arrange them, then sync to Instagram", done: false },
+  ];
   return (
-    <div className="flex flex-1 items-center justify-center p-6">
+    <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
       <div className="max-w-md text-center">
-        <h1 className="text-2xl font-bold tracking-tight">Your saves, finally in order.</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-balance">Your Instagram saves, finally in order.</h1>
         <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          Bring in your Instagram saved posts, then sort them A–Z or by hand, rename them, file them into collections, search them
-          and spot duplicates.
+          Sort them A–Z or by hand, rename them, file them into collections, find anything, and put the new order back on Instagram.
         </p>
-        <button type="button" onClick={onImport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
-          <Upload className="size-5" /> Import from Instagram
-        </button>
-        <div className="mt-6 text-xs text-neutral-500">
+        <ol className="mx-auto mt-6 max-w-xs space-y-2 text-left text-sm">
+          {steps.map((step, i) => (
+            <li key={step.label} className="flex items-center gap-3">
+              <span
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  step.done ? "bg-emerald-500 text-white" : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+                }`}
+              >
+                {step.done ? "✓" : i + 1}
+              </span>
+              <span className={step.done ? "text-neutral-500 line-through" : ""}>{step.label}</span>
+            </li>
+          ))}
+        </ol>
+        {ready ? (
+          <button type="button" onClick={onImport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
+            <Upload className="size-5" /> Import from Instagram
+          </button>
+        ) : (
+          <a href="/extension" className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
+            <Puzzle className="size-5" /> Add Keeper to Chrome
+          </a>
+        )}
+        {!ready && (
+          <p className="mt-4 text-sm">
+            <button type="button" onClick={onExport} className="font-medium text-accent underline-offset-2 hover:underline">
+              On a phone or another browser? Upload Instagram&apos;s export instead
+            </button>
+          </p>
+        )}
+        <div className="mt-8 text-xs text-neutral-500">
           Just looking?{" "}
           <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(500)}>
             Try 500 sample bookmarks

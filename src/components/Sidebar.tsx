@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark as BookmarkIcon, Copy, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
+import { Bookmark as BookmarkIcon, Copy, Sparkles, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { sortCollections, type CollectionSort, type Counts, type Scope } from "@/lib/library/query";
 import type { Collection, Library } from "@/lib/types";
@@ -35,6 +35,7 @@ function Item({
   handle,
   dimmed,
   id,
+  isNew,
 }: {
   active: boolean;
   icon: ReactNode;
@@ -45,6 +46,7 @@ function Item({
   handle?: ReactNode;
   dimmed?: boolean;
   id?: string;
+  isNew?: boolean;
 }) {
   return (
     <div
@@ -61,6 +63,7 @@ function Item({
       >
         <span className="shrink-0 opacity-70">{icon}</span>
         <span className="truncate font-medium">{label}</span>
+        {isNew && <span className="shrink-0 rounded bg-accent px-1 text-[10px] font-semibold text-white uppercase">New</span>}
       </button>
       {actions && <span className="hidden shrink-0 items-center group-focus-within:flex group-hover:flex">{actions}</span>}
       <span className="shrink-0 pr-2.5 text-xs tabular-nums text-neutral-500 dark:text-neutral-400" data-testid={`count-${label}`}>
@@ -202,6 +205,15 @@ export function Sidebar({
           count={counts.total}
           onClick={() => onScope({ type: "all" })}
         />
+        {counts.fresh > 0 && (
+          <Item
+            active={scope.type === "new"}
+            icon={<Sparkles className="size-4 text-accent" />}
+            label="New"
+            count={counts.fresh}
+            onClick={() => onScope({ type: "new" })}
+          />
+        )}
         <Item
           active={scope.type === "unfiled"}
           icon={<Inbox className="size-4" />}
@@ -292,6 +304,7 @@ export function Sidebar({
             {drag && drag.target === index && <div className="pointer-events-none absolute inset-x-1 -top-px z-10 h-0.5 rounded bg-accent" />}
             <Item
               id={c.id}
+              isNew={c.isNew}
               handle={handleFor(c.id, index, c.name)}
               dimmed={drag?.id === c.id}
               active={scope.type === "collection" && scope.id === c.id}

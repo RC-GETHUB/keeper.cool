@@ -66,7 +66,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
       const started = await startPush(plan.steps, read.account);
       setStartedId(started.id);
     } catch (e) {
-      setStage({ stage: "error", message: e instanceof Error ? e.message : "Couldn't start the push." });
+      setStage({ stage: "error", message: e instanceof Error ? e.message : "Couldn't start syncing." });
     }
   };
 
@@ -81,7 +81,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id="push-title" className="text-lg font-semibold">
-            Push your order to Instagram
+            Sync to Instagram
           </h2>
           <button type="button" onClick={onClose} className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
             <X className="size-5" />
@@ -92,28 +92,29 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
           <JobView job={showJob} onClose={onClose} />
         ) : stage.stage === "intro" || stage.stage === "error" ? (
           <div className="space-y-4 text-sm">
-            <ul className="list-disc space-y-1.5 pl-5 text-neutral-700 dark:text-neutral-300">
-              <li>
-                Instagram has no way to move a saved post. Keeper <b>unsaves each post that needs to move and saves it again</b>, which
-                puts it on top, then puts it back in its collections. Posts already in the right place are left alone.
-              </li>
-              <li>
-                To keep your account safe it goes slowly: <b>about one post a minute</b>, at most 500 Instagram actions a day. Moving a
-                few posts takes minutes; re-sorting thousands takes days.
-              </li>
-              <li>
-                <b>Keep Chrome open.</b> Keeper works in an Instagram tab in the background. You can keep using your computer and pause
-                any time.
-              </li>
-              <li>If Instagram says &ldquo;try again later&rdquo;, Keeper stops straight away and tells you.</li>
-              <li>
-                Instagram doesn&apos;t officially support tools like this, so there&apos;s a small chance it temporarily limits your
-                account. Try it on a spare account first.
-              </li>
-            </ul>
+            <p className="text-neutral-700 dark:text-neutral-300">
+              Sync puts your Keeper order on Instagram, so your Saved page there matches. It works slowly in the background (about a
+              post a minute) to keep your account safe. Keep Chrome open while it runs; you can pause any time.
+            </p>
+            <details className="group rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+              <summary className="cursor-pointer font-medium text-neutral-700 dark:text-neutral-300">How it works</summary>
+              <ul className="mt-2 list-disc space-y-1.5 pl-5 text-neutral-600 dark:text-neutral-400">
+                <li>
+                  Instagram can&apos;t move a saved post, so Keeper unsaves each post that needs to move and saves it again (which puts
+                  it on top), then puts it back in its collections. Posts already in place are left alone.
+                </li>
+                <li>It does at most 500 Instagram actions a day. Moving a few posts takes minutes; re-sorting thousands takes days.</li>
+                <li>Keeper works in an Instagram tab in the background. You can keep using your computer.</li>
+                <li>If Instagram says &ldquo;try again later&rdquo;, Keeper stops straight away and tells you.</li>
+                <li>
+                  Instagram doesn&apos;t officially support tools like this, so there&apos;s a small chance it temporarily limits your
+                  account.
+                </li>
+              </ul>
+            </details>
             <label className="flex items-start gap-2.5 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/60">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4 accent-accent" />
-              <span>I understand, and I want Keeper to re-save posts on my Instagram account.</span>
+              <span>I understand Keeper will re-save posts on my Instagram account.</span>
             </label>
             {stage.stage === "error" && (
               <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800 dark:bg-red-500/10 dark:text-red-300">
@@ -125,7 +126,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
                 Cancel
               </button>
               <button type="button" onClick={check} disabled={!consent} className={primaryButton}>
-                Check what needs to change
+                Continue
               </button>
             </div>
           </div>
@@ -208,7 +209,7 @@ function PlanView({
         <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
           <p className="text-2xl font-semibold tabular-nums">{fmtCount.format(plan.steps.length)}</p>
           <p className="text-neutral-600 dark:text-neutral-400">
-            {copy && saves ? `posts to save (${fmtCount.format(saves)} new to this account)` : "posts to re-save"}
+            {copy && saves ? `posts to save (${fmtCount.format(saves)} new to this account)` : "posts will move on Instagram"}
             {plan.unchanged > 0 && `, ${fmtCount.format(plan.unchanged)} already in place`}
           </p>
           <p className="mt-2">
@@ -230,7 +231,7 @@ function PlanView({
         </button>
         {!nothing && (
           <button type="button" onClick={onStart} disabled={copy && !copyConsent} className={primaryButton}>
-            <Send className="size-4" /> Start push
+            <Send className="size-4" /> Start sync
           </button>
         )}
       </div>
@@ -297,7 +298,7 @@ function JobView({ job, onClose }: { job: JobSummary; onClose: () => void }) {
       <div className="flex flex-wrap justify-end gap-2">
         {(active || stopped) && (
           <button type="button" onClick={() => act("cancel")} disabled={busy} className={`${ghostButton} text-red-600 dark:text-red-400`}>
-            Cancel push
+            Stop sync
           </button>
         )}
         {active && (

@@ -134,10 +134,12 @@ async function run() {
       args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
       viewport: { width: 1280, height: 900 },
     });
-    await context.addCookies([
-      { name: "ds_user_id", value: USER_ID, domain: ".instagram.com", path: "/", secure: true },
-      { name: "csrftoken", value: "csrf-test", domain: ".instagram.com", path: "/", secure: true },
-    ]);
+    // Start logged out of Instagram; the test logs in through Keeper's pop-up.
+    const logIn = () =>
+      context.addCookies([
+        { name: "ds_user_id", value: USER_ID, domain: ".instagram.com", path: "/", secure: true },
+        { name: "csrftoken", value: "csrf-test", domain: ".instagram.com", path: "/", secure: true },
+      ]);
     await mockInstagram(context);
     if (!context.serviceWorkers().length) await context.waitForEvent("serviceworker");
     console.log("Extension loaded.");
@@ -150,8 +152,13 @@ async function run() {
     await page.reload();
 
     console.log("Import:");
+    // On the welcome screen the button starts the import straight away.
     await page.getByRole("button", { name: "Import from Instagram" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+    await page.getByRole("button", { name: "Log in to Instagram" }).waitFor({ timeout: 30_000 });
+    check(true, "asks to log in to Instagram when logged out");
+    const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
+    check(popup.url().startsWith("https://www.instagram.com/accounts/login"), "opens Instagram's own login page in a pop-up");
+    await logIn();
     await page.getByText(/Added 45 bookmarks/).waitFor({ timeout: 60_000 });
     check(true, "45 saved posts imported");
     check(await page.getByText("45 saved posts on Instagram (@test.account)").isVisible(), "shows which account it read");
@@ -171,15 +178,15 @@ async function run() {
     const last = posts[44].code;
     await page.locator(`[data-id="${last}"] input[type=checkbox]`).check();
     await page.getByRole("button", { name: "Top", exact: true }).click();
-    await page.getByRole("button", { name: "Push to Instagram" }).click();
+    await page.getByRole("button", { name: "Sync to Instagram" }).click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
-    await page.getByRole("button", { name: "Check what needs to change" }).click();
-    await page.getByText("posts to re-save").waitFor();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByText("posts will move on Instagram").waitFor();
     check((await page.locator("p.text-2xl").textContent()) === "1", "plan re-saves just the 1 moved post");
     const before = ig.calls.length;
-    await page.getByRole("button", { name: "Start push" }).click();
+    await page.getByRole("button", { name: "Start sync" }).click();
     await page.getByText("Finished").waitFor({ timeout: 30_000 }).catch(async () => {
-      await page.getByRole("button", { name: /Pushing/ }).click();
+      await page.getByRole("button", { name: /Syncing/ }).click();
       await page.getByText("Finished").waitFor({ timeout: 30_000 });
     });
     check(ig.saved[0] === last, "the moved post is now first on Instagram");
@@ -188,19 +195,19 @@ async function run() {
     await page.getByRole("dialog").getByText("Close", { exact: true }).click();
 
     console.log("Push a full A–Z re-sort:");
+    // Picking a sort arranges the list right away.
     await page.getByRole("combobox", { name: "Sort", exact: true }).selectOption("az");
-    await page.getByRole("button", { name: /Keep this order/ }).click();
     const order = await page.evaluate(async () => {
       const ids = [...document.querySelectorAll("[role=listitem]")]
         .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
         .map((r) => r.getAttribute("data-id"));
       return ids;
     });
-    await page.getByRole("button", { name: "Push to Instagram" }).click();
+    await page.getByRole("button", { name: "Sync to Instagram" }).click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
-    await page.getByRole("button", { name: "Check what needs to change" }).click();
-    await page.getByText("posts to re-save").waitFor();
-    await page.getByRole("button", { name: "Start push" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByText("posts will move on Instagram").waitFor();
+    await page.getByRole("button", { name: "Start sync" }).click();
     await page.getByText("Finished").waitFor({ timeout: 120_000 });
     check(
       JSON.stringify(ig.saved.slice(0, order.length)) === JSON.stringify(order),
@@ -211,6 +218,19 @@ async function run() {
       JSON.stringify([...ig.collections.get("17900000000000001").items].sort()) === JSON.stringify(recipes),
       "Recipes still has exactly its posts after re-saving",
     );
+    await page.getByRole("dialog").getByText("Close", { exact: true }).click();
+
+    console.log("New saves arrive on their own:");
+    const fresh = { code: "NEWPOSTxxxx", pk: "3456789012345678999", author: "jo_travels", caption: "Saved just now", reel: false };
+    posts.push(fresh);
+    byPk.set(fresh.pk, fresh);
+    ig.saved.unshift(fresh.code);
+    await page.reload();
+    await page.getByText("1 new save from Instagram").waitFor({ timeout: 30_000 });
+    check(true, "a post saved on Instagram appears after reopening Keeper");
+    check((await page.locator("[role=listitem]").first().getAttribute("data-id")) === fresh.code, "it lands on top");
+    check(await page.getByText("46 bookmarks").first().isVisible(), "total is now 46");
+
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
     await context.close();
     console.log("All extension checks passed.");

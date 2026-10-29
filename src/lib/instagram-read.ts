@@ -1,5 +1,6 @@
 import { postUrl } from "./instagram";
-import type { Bookmark, ImportResult, InstagramAccount, PostKind } from "./types";
+import { addToCollection, mergeImport } from "./library/ops";
+import type { Bookmark, ImportResult, InstagramAccount, Library, PostKind } from "./types";
 
 // What the extension reads from the logged-in Instagram tab, and how it
 // becomes an import. The extension trims Instagram's large media objects
@@ -31,6 +32,8 @@ export interface InstagramRead {
   /** Newest saved first. */
   saved: InstagramMedia[];
   collections: InstagramCollection[];
+  /** Only the posts saved since Keeper last looked (no collections). */
+  partial?: boolean;
 }
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -72,7 +75,25 @@ export function fromInstagramRead(read: InstagramRead): ImportResult {
     skipped: 0,
     warnings: [],
     account: read.account,
+    partial: read.partial,
   };
+}
+
+/**
+ * Adds posts saved since the last visit, and files them into their
+ * collections when Instagram says which (and Keeper knows the collection).
+ */
+export function mergeNewSaves(lib: Library, read: InstagramRead): { library: Library; added: number } {
+  const { library, summary } = mergeImport(lib, fromInstagramRead({ ...read, partial: true }));
+  let next = library;
+  const byInstagramId = new Map(next.collections.filter((c) => c.instagramId).map((c) => [c.instagramId!, c.id]));
+  for (const m of read.saved) {
+    for (const igId of m.collectionIds ?? []) {
+      const id = byInstagramId.get(igId);
+      if (id) next = addToCollection(next, id, [m.code]);
+    }
+  }
+  return { library: next, added: summary.added };
 }
 
 /**

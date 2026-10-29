@@ -30,13 +30,15 @@ export interface MergeSummary {
  * the last import stay until the user removes them.
  */
 export function mergeImport(lib: Library, result: ImportResult): { library: Library; summary: MergeSummary } {
+  // Everything is new on the first import, so only later imports flag what they add.
+  const flagNew = lib.order.length > 0;
   const bookmarks = { ...lib.bookmarks };
   const fresh: string[] = [];
   let updated = 0;
   for (const incoming of result.bookmarks) {
     const existing = bookmarks[incoming.id];
     if (!existing) {
-      bookmarks[incoming.id] = { ...incoming };
+      bookmarks[incoming.id] = flagNew ? { ...incoming, isNew: true } : { ...incoming };
       fresh.push(incoming.id);
       continue;
     }
@@ -69,6 +71,7 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
       if (incoming.createdAt) created.createdAt = incoming.createdAt;
       if (incoming.updatedAt) created.updatedAt = incoming.updatedAt;
       created.instagramItems = [...incoming.items];
+      if (flagNew) created.isNew = true;
       collections.push(created);
       collectionOrder.push(created.id);
       collectionsAdded++;
@@ -91,7 +94,10 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
     order: [...fresh, ...lib.order],
     collections,
     // Instagram's order as of this import, for "Restore Instagram's order".
-    instagramOrder: result.bookmarks.map((b) => b.id),
+    // New saves alone go on top of the order already known.
+    instagramOrder: result.partial
+      ? [...new Set([...result.bookmarks.map((b) => b.id), ...(lib.instagramOrder ?? [])])]
+      : result.bookmarks.map((b) => b.id),
   };
   if (result.collections.length) patch.instagramCollectionOrder = collectionOrder;
   if (result.account) patch.instagram = result.account;
@@ -99,6 +105,28 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
     library: touch(lib, patch),
     summary: { added: fresh.length, updated, collectionsAdded },
   };
+}
+
+/** Clears the "New" flags from bookmarks and collections (all of them, or just `ids`). */
+export function markSeen(lib: Library, ids?: string[]): Library {
+  const only = ids ? new Set(ids) : null;
+  let changed = false;
+  const bookmarks = { ...lib.bookmarks };
+  for (const id of only ?? Object.keys(bookmarks)) {
+    const b = bookmarks[id];
+    if (b?.isNew) {
+      const { isNew: _, ...rest } = b;
+      bookmarks[id] = rest;
+      changed = true;
+    }
+  }
+  const collections = lib.collections.map((c) => {
+    if (!c.isNew || (only && !only.has(c.id))) return c;
+    changed = true;
+    const { isNew: _, ...rest } = c;
+    return rest;
+  });
+  return changed ? touch(lib, { bookmarks, collections }) : lib;
 }
 
 /** Adds cover images (from the extension) to bookmarks. Not an edit, so it isn't something to undo. */

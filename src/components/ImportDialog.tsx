@@ -1,8 +1,8 @@
 "use client";
 
 import { ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
-import { useRef, useState } from "react";
-import { ExtensionError, readInstagram, type ExtensionState, type ReadProgress } from "@/lib/extension";
+import { useEffect, useRef, useState } from "react";
+import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState, type ReadProgress } from "@/lib/extension";
 import { readExport } from "@/lib/import";
 import { fromInstagramRead } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
@@ -11,6 +11,8 @@ import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
 
 interface Props {
   extension: ExtensionState;
+  /** Start importing from Instagram straight away (the welcome screen's button). */
+  autoStart?: boolean;
   onClose: () => void;
   onImport: (result: ImportResult) => MergeSummary;
   /** Cover images arrive after the import, in batches. */
@@ -21,6 +23,7 @@ type Status =
   | { state: "idle" }
   | { state: "reading" }
   | { state: "fetching"; progress: ReadProgress | null }
+  | { state: "login"; waiting: boolean; message?: string }
   | { state: "done"; result: ImportResult; summary: MergeSummary; source: "file" | "instagram" }
   | { state: "error"; message: string };
 
@@ -32,7 +35,7 @@ function progressText(p: ReadProgress | null): string {
   return "Finishing up…";
 }
 
-export function ImportDialog({ extension, onClose, onImport, onThumbs }: Props) {
+export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
   const [showExport, setShowExport] = useState(false);
@@ -65,6 +68,10 @@ export function ImportDialog({ extension, onClose, onImport, onThumbs }: Props) 
       const result = fromInstagramRead(read);
       setStatus({ state: "done", result, summary: onImport(result), source: "instagram" });
     } catch (e) {
+      if (e instanceof ExtensionError && e.code === "login") {
+        setStatus({ state: "login", waiting: false });
+        return;
+      }
       setStatus({
         state: "error",
         message: e instanceof ExtensionError || e instanceof Error ? e.message : "Something went wrong reading from Instagram.",
@@ -72,7 +79,25 @@ export function ImportDialog({ extension, onClose, onImport, onThumbs }: Props) 
     }
   };
 
-  const busy = status.state === "reading" || status.state === "fetching";
+  const logIn = async () => {
+    setStatus({ state: "login", waiting: true });
+    try {
+      await logInToInstagram();
+      fromInstagram();
+    } catch (e) {
+      setStatus({ state: "login", waiting: false, message: e instanceof Error ? e.message : undefined });
+    }
+  };
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (autoStart && hasExtension && !started.current) {
+      started.current = true;
+      fromInstagram();
+    }
+  });
+
+  const busy = status.state === "reading" || status.state === "fetching" || (status.state === "login" && status.waiting);
   const exportOpen = !hasExtension || showExport;
 
   return (
@@ -157,6 +182,24 @@ export function ImportDialog({ extension, onClose, onImport, onThumbs }: Props) 
                   <p className="flex items-center gap-2 text-sm" role="status">
                     <Loader2 className="size-4 animate-spin text-accent" /> {progressText(status.progress)}
                   </p>
+                ) : status.state === "login" ? (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      {status.waiting
+                        ? "Log in to Instagram in the window that just opened. Keeper carries on as soon as you're in."
+                        : (status.message ?? "You're not logged into Instagram in this browser yet.")}
+                    </p>
+                    {status.waiting ? (
+                      <p className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400" role="status">
+                        <Loader2 className="size-4 animate-spin text-accent" /> Waiting for Instagram…
+                      </p>
+                    ) : (
+                      <button type="button" onClick={logIn} className={`${primaryButton} w-full justify-center py-2`}>
+                        Log in to Instagram
+                      </button>
+                    )}
+                    <p className="text-xs text-neutral-500">You type your password into Instagram itself; Keeper never sees it.</p>
+                  </div>
                 ) : (
                   <button type="button" onClick={fromInstagram} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
                     Import from Instagram

@@ -77,6 +77,26 @@ async function ig(op, args) {
 
 // ---------------------------------------------------------------- Reading
 
+/**
+ * Only what's been saved since Keeper last looked: reads from the top of the
+ * Saved list until it reaches a post Keeper already has (usually one request).
+ */
+async function readNewSaves(pace, known) {
+  const account = await ig("whoami");
+  const knownSet = new Set(known);
+  const saved = [];
+  let maxId = null;
+  for (let page = 0; page < 10; page++) {
+    const result = await ig("savedPage", { maxId });
+    const firstKnown = result.items.findIndex((m) => knownSet.has(m.code));
+    saved.push(...(firstKnown < 0 ? result.items : result.items.slice(0, firstKnown)));
+    if (firstKnown >= 0 || !result.more) break;
+    maxId = result.next;
+    await sleep(between(pace.pageMin, pace.pageMax));
+  }
+  return { account, saved, collections: [], partial: true };
+}
+
 async function readInstagram(pace, emit) {
   const account = await ig("whoami");
   emit({ phase: "account", account });
@@ -359,13 +379,13 @@ async function handleError(error) {
 async function startPush({ steps, account, pace }) {
   const existing = await loadJob();
   if (existing && (existing.status === "running" || existing.status === "waiting")) {
-    throw { code: "busy", message: "A push is already running. Pause or cancel it first." };
+    throw { code: "busy", message: "A sync is already running. Pause or stop it first." };
   }
   const me = await ig("whoami");
   if (me.userId !== account.userId) {
     throw {
       code: "account",
-      message: `Instagram is logged into ${me.username ? `@${me.username}` : "a different account"}, not the account this push was planned for.`,
+      message: `Instagram is logged into ${me.username ? `@${me.username}` : "a different account"}, not the account this sync was planned for.`,
     };
   }
   const job = {
@@ -476,7 +496,9 @@ async function handle(port, message) {
         result = await ig("whoami");
         break;
       case "read": {
-        const read = await readInstagram(paceFor(pace), (progress) => reply({ event: "progress", ...progress }));
+        const read = Array.isArray(payload.known)
+          ? await readNewSaves(paceFor(pace), payload.known)
+          : await readInstagram(paceFor(pace), (progress) => reply({ event: "progress", ...progress }));
         // Hand over the list now; cover images follow as progress events.
         reply({ ok: true, result: read });
         if (payload.thumbnails !== false) {

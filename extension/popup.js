@@ -1,20 +1,20 @@
 const $ = (id) => document.getElementById(id);
 
 function describe(job) {
-  if (!job) return "Open Keeper to import your saved posts or push your order to Instagram.";
+  if (!job) return "Open Keeper to bring in your saved posts or sync your order to Instagram.";
   const progress = `${job.done.toLocaleString()} of ${job.total.toLocaleString()} posts`;
   switch (job.status) {
     case "running":
-      return `Pushing to Instagram: ${progress}. Keep Chrome open.`;
+      return `Syncing to Instagram: ${progress}. Keep Chrome open.`;
     case "waiting":
       return `${progress}. ${job.message}`;
     case "paused":
     case "blocked":
       return `${progress}. ${job.message}`;
     case "done":
-      return `Push finished: ${progress}.`;
+      return `Sync finished: ${progress}.`;
     case "cancelled":
-      return `Push cancelled after ${progress}.`;
+      return `Sync stopped after ${progress}.`;
     default:
       return progress;
   }

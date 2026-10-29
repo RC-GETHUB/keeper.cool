@@ -4,7 +4,7 @@ import { ExtensionStatus } from "./status";
 
 export const metadata: Metadata = {
   title: "Keeper extension",
-  description: "Import your Instagram saves in one click, and push your order back to Instagram.",
+  description: "Import your Instagram saves in one click, and sync your order back to Instagram.",
 };
 
 const code = "rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[13px] dark:bg-neutral-800";
@@ -67,7 +67,7 @@ export default function ExtensionPage() {
           scrolling. Nothing on Instagram changes.
         </li>
         <li>
-          <b>Pushing changes your saves, slowly.</b> Instagram can&apos;t move a saved post, so Keeper unsaves and re-saves the posts that
+          <b>Syncing changes your saves, slowly.</b> Instagram can&apos;t move a saved post, so Keeper unsaves and re-saves the posts that
           need to move, about one a minute, and stops if Instagram says to slow down. It only starts when you ask and tick the
           consent box.
         </li>
@@ -75,7 +75,7 @@ export default function ExtensionPage() {
           <b>Your login stays in your browser.</b> Keeper never sees your password, and your session never leaves this computer.
         </li>
         <li>
-          Instagram doesn&apos;t officially support tools like this, so try pushing on a spare account first.
+          Instagram doesn&apos;t officially support tools like this, so try syncing on a spare account first.
         </li>
       </ul>
     </main>

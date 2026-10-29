@@ -144,6 +144,52 @@ export function readInstagram(onProgress: (p: ReadProgress) => void, options: { 
   );
 }
 
+/** Posts saved on Instagram since Keeper last looked: reads until it reaches one of `known`. */
+export function readNewSaves(known: string[], onThumbs: (items: { code: string; data: string }[]) => void): Promise<InstagramRead> {
+  return request<InstagramRead>("read", { known, thumbnails: true, pace: testPace() }, (m) => {
+    const p = m as unknown as ReadProgress;
+    if (p.items?.length) onThumbs(p.items);
+  });
+}
+
+/** The Instagram account logged in in this browser (fails with code "login" if none). */
+export function instagramAccount(): Promise<InstagramAccount> {
+  return request<InstagramAccount>("account");
+}
+
+/**
+ * Opens Instagram's own login page in a small window and resolves once the
+ * extension sees a logged-in account (or rejects if the window is closed
+ * first). Keeper never sees the password: it's typed into instagram.com.
+ */
+export function logInToInstagram(): Promise<InstagramAccount> {
+  const width = 460;
+  const height = 720;
+  const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+  const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+  const popup = window.open(
+    "https://www.instagram.com/accounts/login/",
+    "keeper-instagram-login",
+    `popup,width=${width},height=${height},left=${left},top=${top}`,
+  );
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      try {
+        const account = await instagramAccount();
+        clearInterval(timer);
+        popup?.close();
+        resolve(account);
+      } catch {
+        if ((popup && popup.closed) || Date.now() - started > 10 * 60_000) {
+          clearInterval(timer);
+          reject(new ExtensionError("login", "Instagram login was closed before you finished logging in."));
+        }
+      }
+    }, 2500);
+  });
+}
+
 export function startPush(steps: PushStep[], account: InstagramAccount): Promise<JobSummary> {
   return request<JobSummary>("push:start", { steps, account, pace: testPace() });
 }
