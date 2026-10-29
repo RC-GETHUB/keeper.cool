@@ -124,8 +124,12 @@ one-post push and a full A–Z push.
 
 ## Next
 
-1. Test the extension on a real (spare) Instagram account.
-2. Push the order of posts within collections, and collection order.
-3. **Accounts and sync**: sign-in and a server copy of the library.
-4. **Payments**: Stripe; a free tier with a bookmark cap, paid plans for
-   unlimited bookmarks and push-back.
+1. Test the extension on real Instagram accounts (import on a personal
+   account, sync on a spare one).
+2. Publish the extension to the Chrome Web Store (`store/LISTING.md`), then
+   swap the zip install steps on `/extension` for the store link.
+3. Sync the order of posts within collections, and the collection order.
+4. **Accounts and sync**: sign-in and a server copy of each library, so it
+   follows people between devices.
+5. **Payments**: Stripe; a free tier with a bookmark cap, paid plans for
+   unlimited bookmarks and sync.
