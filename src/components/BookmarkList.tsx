@@ -7,7 +7,7 @@ import { displayName, kindLabel } from "@/lib/library/query";
 import type { Bookmark, Library } from "@/lib/types";
 import { InlineEdit, Thumb, formatDate, plural } from "./ui";
 
-const ROW = 64;
+const ROW = 88;
 const OVERSCAN = 10;
 const EDGE = 64;
 
@@ -254,9 +254,12 @@ const Row = memo(function Row({
   handlers: RowHandlers;
 }) {
   const name = displayName(bookmark);
+  // Heading: the user's name for it, else who posted it. The caption gets its own lines below.
+  const heading = bookmark.title ?? (bookmark.author ? `@${bookmark.author}` : name);
+  const caption = bookmark.caption?.replace(/\s+/g, " ").trim();
 
   const details: string[] = [];
-  if (bookmark.author && name !== `@${bookmark.author}`) details.push(`@${bookmark.author}`);
+  if (bookmark.title && bookmark.author) details.push(`@${bookmark.author}`);
   details.push(kindLabel(bookmark));
   if (bookmark.savedAt) details.push(`Saved ${formatDate(bookmark.savedAt)}`);
 
@@ -327,11 +330,16 @@ const Row = memo(function Row({
             onCancel={() => h.setRenaming(null)}
           />
         ) : (
-          <p className="truncate text-sm font-medium" onDoubleClick={() => h.setRenaming(bookmark.id)} title={name}>
-            {name}
+          <p className="truncate text-sm font-medium" onDoubleClick={() => h.setRenaming(bookmark.id)} title={heading}>
+            {heading}
           </p>
         )}
-        <p className="flex items-center gap-1.5 truncate text-xs text-neutral-500">
+        {caption && (
+          <p className="line-clamp-2 text-xs leading-snug text-neutral-600 dark:text-neutral-400" title={bookmark.caption}>
+            {caption}
+          </p>
+        )}
+        <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-neutral-500">
           <span className="truncate">{details.join(" · ")}</span>
           {showCollections && collections.length > 0 && (
             <span className="hidden items-center gap-1 truncate sm:inline-flex">

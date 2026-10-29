@@ -100,26 +100,31 @@ export function Thumb({ bookmark }: { bookmark: Bookmark }) {
   const Icon = bookmark.kind === "reel" ? Film : bookmark.kind === "tv" ? Tv : ImageIcon;
   if (bookmark.thumbnailUrl && !failed) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={bookmark.thumbnailUrl}
-        alt=""
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
-        className="size-11 shrink-0 rounded-lg object-cover"
-      />
+      <div className="relative size-16 shrink-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={bookmark.thumbnailUrl}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+          className="size-16 rounded-lg object-cover"
+        />
+        {bookmark.kind !== "post" && (
+          <Icon className="absolute right-1 bottom-1 size-3.5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-hidden />
+        )}
+      </div>
     );
   }
   const seed = bookmark.author ?? bookmark.id;
   return (
     <div
-      className="relative flex size-11 shrink-0 items-center justify-center rounded-lg text-base font-semibold text-white"
+      className="relative flex size-16 shrink-0 items-center justify-center rounded-lg text-xl font-semibold text-white"
       style={{ background: TILE_COLORS[hash(seed) % TILE_COLORS.length] }}
       aria-hidden
     >
       {(bookmark.author?.[0] ?? "#").toUpperCase()}
-      <Icon className="absolute right-0.5 bottom-0.5 size-3 opacity-80" />
+      <Icon className="absolute right-1 bottom-1 size-3.5 opacity-80" />
     </div>
   );
 }

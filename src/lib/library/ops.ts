@@ -42,9 +42,11 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
     }
     const merged: Bookmark = {
       ...existing,
+      kind: existing.kind === "post" ? incoming.kind : existing.kind,
       author: existing.author ?? incoming.author,
-      caption: existing.caption ?? incoming.caption,
+      caption: incoming.caption ?? existing.caption,
       thumbnailUrl: incoming.thumbnailUrl ?? existing.thumbnailUrl,
+      mediaId: existing.mediaId ?? incoming.mediaId,
       savedAt: existing.savedAt ?? incoming.savedAt,
     };
     if (Object.keys(merged).some((k) => merged[k as keyof Bookmark] !== existing[k as keyof Bookmark])) {
@@ -57,29 +59,44 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
   let collectionsAdded = 0;
   for (const incoming of result.collections) {
     const existing =
-      collections.find((c) => c.instagramName === incoming.name) ??
+      (incoming.instagramId && collections.find((c) => c.instagramId === incoming.instagramId)) ||
+      collections.find((c) => c.instagramName === incoming.name) ||
       collections.find((c) => c.instagramName === undefined && c.name === incoming.name);
     if (!existing) {
-      collections.push({
-        id: newId(),
-        name: incoming.name,
-        instagramName: incoming.name,
-        createdAt: incoming.createdAt,
-        items: [...incoming.items],
-      });
+      const created: Collection = { id: newId(), name: incoming.name, instagramName: incoming.name, items: [...incoming.items] };
+      if (incoming.instagramId) created.instagramId = incoming.instagramId;
+      if (incoming.createdAt) created.createdAt = incoming.createdAt;
+      collections.push(created);
       collectionsAdded++;
       continue;
     }
-    existing.instagramName ??= incoming.name;
+    existing.instagramName = incoming.name;
+    if (incoming.instagramId) existing.instagramId = incoming.instagramId;
     const have = new Set(existing.items);
     const added = incoming.items.filter((id) => !have.has(id));
     if (added.length) existing.items = [...added, ...existing.items];
   }
 
+  const patch: Partial<Library> = { bookmarks, order: [...fresh, ...lib.order], collections };
+  if (result.account) patch.instagram = result.account;
   return {
-    library: touch(lib, { bookmarks, order: [...fresh, ...lib.order], collections }),
+    library: touch(lib, patch),
     summary: { added: fresh.length, updated, collectionsAdded },
   };
+}
+
+/** Adds cover images (from the extension) to bookmarks. Not an edit, so it isn't something to undo. */
+export function applyThumbnails(lib: Library, thumbs: { code: string; data: string }[]): Library {
+  const bookmarks = { ...lib.bookmarks };
+  let changed = false;
+  for (const { code, data } of thumbs) {
+    const b = bookmarks[code];
+    if (b && b.thumbnailUrl !== data) {
+      bookmarks[code] = { ...b, thumbnailUrl: data };
+      changed = true;
+    }
+  }
+  return changed ? { ...lib, bookmarks } : lib;
 }
 
 /** Sets the user's own name for a bookmark. An empty name goes back to the default. */

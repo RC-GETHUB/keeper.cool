@@ -1,38 +1,79 @@
 "use client";
 
-import { FileArchive, Loader2, Lock, Upload, X } from "lucide-react";
+import { ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
 import { useRef, useState } from "react";
+import { ExtensionError, readInstagram, type ExtensionState, type ReadProgress } from "@/lib/extension";
 import { readExport } from "@/lib/import";
+import { fromInstagramRead } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
 import type { ImportResult } from "@/lib/types";
-import { formatDate, ghostButton, plural, primaryButton } from "./ui";
+import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
 
 interface Props {
+  extension: ExtensionState;
   onClose: () => void;
   onImport: (result: ImportResult) => MergeSummary;
+  /** Cover images arrive after the import, in batches. */
+  onThumbs: (items: { code: string; data: string }[]) => void;
 }
 
 type Status =
   | { state: "idle" }
   | { state: "reading" }
-  | { state: "done"; result: ImportResult; summary: MergeSummary }
+  | { state: "fetching"; progress: ReadProgress | null }
+  | { state: "done"; result: ImportResult; summary: MergeSummary; source: "file" | "instagram" }
   | { state: "error"; message: string };
 
-export function ImportDialog({ onClose, onImport }: Props) {
+function progressText(p: ReadProgress | null): string {
+  if (!p) return "Connecting to Instagram…";
+  if (p.phase === "account") return `Connected to ${p.account?.username ? `@${p.account.username}` : "Instagram"}. Reading saved posts…`;
+  if (p.phase === "saved") return `Found ${fmtCount.format(p.count ?? 0)} saved posts so far…`;
+  if (p.phase === "collections") return `Reading collections: ${fmtCount.format(p.done ?? 0)} of ${fmtCount.format(p.total ?? 0)}${p.name ? ` (${p.name})` : ""}…`;
+  return "Finishing up…";
+}
+
+export function ImportDialog({ extension, onClose, onImport, onThumbs }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
+  const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
+  const [showExport, setShowExport] = useState(false);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const hasExtension = extension.status === "ready";
 
   const handle = async (files: File[]) => {
     if (!files.length) return;
     setStatus({ state: "reading" });
     try {
       const result = await readExport(files);
-      setStatus({ state: "done", result, summary: onImport(result) });
+      setStatus({ state: "done", result, summary: onImport(result), source: "file" });
     } catch (e) {
       setStatus({ state: "error", message: e instanceof Error ? e.message : "Something went wrong reading that file." });
     }
   };
+
+  const fromInstagram = async () => {
+    setStatus({ state: "fetching", progress: null });
+    try {
+      const read = await readInstagram((p) => {
+        if (p.phase === "thumbs" || p.phase === "thumbs-done") {
+          if (p.items?.length) onThumbs(p.items);
+          setThumbs({ done: p.done ?? 0, total: p.total ?? 0, finished: p.phase === "thumbs-done" });
+        } else {
+          setStatus({ state: "fetching", progress: p });
+        }
+      });
+      const result = fromInstagramRead(read);
+      setStatus({ state: "done", result, summary: onImport(result), source: "instagram" });
+    } catch (e) {
+      setStatus({
+        state: "error",
+        message: e instanceof ExtensionError || e instanceof Error ? e.message : "Something went wrong reading from Instagram.",
+      });
+    }
+  };
+
+  const busy = status.state === "reading" || status.state === "fetching";
+  const exportOpen = !hasExtension || showExport;
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
@@ -61,7 +102,12 @@ export function ImportDialog({ onClose, onImport }: Props) {
                   : "No new bookmarks — you're up to date."}
               </p>
               <ul className="mt-1 list-disc pl-5 text-emerald-800 dark:text-emerald-300">
-                <li>{plural(status.result.bookmarks.length, "saved post")} found in the file</li>
+                <li>
+                  {plural(status.result.bookmarks.length, "saved post")}{" "}
+                  {status.source === "file"
+                    ? "found in the file"
+                    : `on Instagram${status.result.account?.username ? ` (@${status.result.account.username})` : ""}`}
+                </li>
                 {status.summary.collectionsAdded > 0 && <li>{plural(status.summary.collectionsAdded, "new collection")}</li>}
                 {status.summary.updated > 0 && <li>{plural(status.summary.updated, "bookmark")} updated with new details</li>}
                 {status.result.mergedDuplicates > 0 && (
@@ -69,7 +115,19 @@ export function ImportDialog({ onClose, onImport }: Props) {
                 )}
               </ul>
             </div>
-            <DateRangeHint result={status.result} />
+            {status.source === "file" && <DateRangeHint result={status.result} />}
+            {thumbs && (
+              <div className="space-y-1.5 text-sm">
+                <p className="text-neutral-600 dark:text-neutral-400">
+                  {thumbs.finished
+                    ? `Cover images added (${fmtCount.format(thumbs.done)}).`
+                    : `Adding cover images: ${fmtCount.format(thumbs.done)} of ${fmtCount.format(thumbs.total)}. You can close this; it carries on.`}
+                </p>
+                <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                  <div className="h-full bg-accent transition-[width]" style={{ width: `${thumbs.total ? (100 * thumbs.done) / thumbs.total : 0}%` }} />
+                </div>
+              </div>
+            )}
             {status.result.warnings.map((w) => (
               <p key={w} className="text-sm text-amber-700 dark:text-amber-300">
                 {w}
@@ -83,6 +141,57 @@ export function ImportDialog({ onClose, onImport }: Props) {
           </div>
         ) : (
           <div className="space-y-4">
+            {hasExtension ? (
+              <div className="space-y-3 rounded-xl border border-accent/30 bg-accent-soft/60 p-4 dark:bg-accent/10">
+                <div className="flex items-start gap-3">
+                  <Zap className="mt-0.5 size-5 shrink-0 text-accent" />
+                  <div className="text-sm">
+                    <p className="font-semibold">Import straight from Instagram</p>
+                    <p className="mt-0.5 text-neutral-600 dark:text-neutral-400">
+                      Reads your saved posts, collections, captions and cover images from Instagram in this browser. Usually a few
+                      minutes. Nothing on Instagram changes.
+                    </p>
+                  </div>
+                </div>
+                {status.state === "fetching" ? (
+                  <p className="flex items-center gap-2 text-sm" role="status">
+                    <Loader2 className="size-4 animate-spin text-accent" /> {progressText(status.progress)}
+                  </p>
+                ) : (
+                  <button type="button" onClick={fromInstagram} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
+                    Import from Instagram
+                  </button>
+                )}
+              </div>
+            ) : (
+              <a
+                href="/extension"
+                className="flex items-start gap-3 rounded-xl border border-neutral-200 p-4 text-sm hover:border-accent dark:border-neutral-800"
+              >
+                <Puzzle className="mt-0.5 size-5 shrink-0 text-accent" />
+                <span>
+                  <span className="font-semibold">Skip the wait with the Keeper extension.</span>{" "}
+                  <span className="text-neutral-600 dark:text-neutral-400">
+                    One click imports everything, with cover images and captions. For Chrome on a computer. Get it →
+                  </span>
+                </span>
+              </a>
+            )}
+
+            {hasExtension && (
+              <button
+                type="button"
+                onClick={() => setShowExport((v) => !v)}
+                className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                aria-expanded={showExport}
+              >
+                <ChevronDown className={`size-4 transition-transform ${showExport ? "" : "-rotate-90"}`} />
+                Or upload Instagram&apos;s data export
+              </button>
+            )}
+
+            {exportOpen && (
+            <>
             <ol className="list-decimal space-y-1.5 pl-5 text-sm text-neutral-700 dark:text-neutral-300">
               <li>
                 Open Instagram&apos;s <b>Settings</b> (on instagram.com, it&apos;s under <b>More</b> at the bottom left), then <b>Accounts Center</b> (or <b>Meta Account</b>) <b>→ Your information and permissions → Export your information → Create export</b>.
@@ -148,6 +257,8 @@ export function ImportDialog({ onClose, onImport }: Props) {
                 }}
               />
             </div>
+            </>
+            )}
 
             {status.state === "error" && (
               <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-500/10 dark:text-red-300">
@@ -157,7 +268,8 @@ export function ImportDialog({ onClose, onImport }: Props) {
 
             <p className="flex items-start gap-2 text-xs text-neutral-500">
               <Lock className="mt-px size-3.5 shrink-0" />
-              Your file is read on this device. Only the saved-post links, usernames and dates are kept, and nothing is uploaded.
+              Everything is read on this device. Keeper keeps the post links, names, captions and small cover images, and
+              nothing is uploaded.
             </p>
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={ghostButton}>

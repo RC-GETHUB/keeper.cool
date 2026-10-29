@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: light dark; --accent: #6d4aff; }
+      body { font: 13px/1.4 system-ui, sans-serif; width: 280px; margin: 0; padding: 14px; }
+      h1 { font-size: 15px; margin: 0 0 8px; }
+      h1 span { color: var(--accent); }
+      p { margin: 0 0 10px; color: #666; }
+      @media (prefers-color-scheme: dark) { p { color: #aaa; } }
+      .bar { height: 6px; border-radius: 3px; background: #8883; overflow: hidden; margin: 0 0 10px; }
+      .bar div { height: 100%; background: var(--accent); width: 0; }
+      .row { display: flex; gap: 6px; flex-wrap: wrap; }
+      button, a.button { font: inherit; border: 1px solid #8885; background: none; color: inherit; border-radius: 8px; padding: 5px 10px; cursor: pointer; text-decoration: none; }
+      a.primary { background: var(--accent); color: white; border-color: var(--accent); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1>keeper<span>.cool</span></h1>
+    <p id="status">Loading…</p>
+    <div class="bar" id="bar" hidden><div></div></div>
+    <div class="row">
+      <button id="pause" hidden>Pause</button>
+      <button id="resume" hidden>Resume</button>
+      <button id="cancel" hidden>Cancel push</button>
+      <a class="button primary" href="https://keeper-cool.vercel.app" target="_blank">Open Keeper</a>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

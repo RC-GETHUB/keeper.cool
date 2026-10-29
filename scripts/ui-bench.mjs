@@ -155,7 +155,7 @@ async function run() {
       r.dragMs = await timed(async () => {
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.down();
-        await page.mouse.move(box.x + box.width / 2, box.y + 64 * 3.5, { steps: 8 });
+        await page.mouse.move(box.x + box.width / 2, box.y + 88 * 3.5, { steps: 8 });
         await page.mouse.up();
         await page.waitForFunction((id) => document.querySelector("[role=listitem]")?.getAttribute("data-id") !== id, firstId, { polling: "raf" });
       });

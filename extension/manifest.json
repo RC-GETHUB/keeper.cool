@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Keeper for Instagram",
+  "version": "0.1.0",
+  "description": "Brings your Instagram saved posts into keeper.cool, and puts your new order back on Instagram.",
+  "permissions": ["storage", "alarms", "scripting"],
+  "host_permissions": [
+    "https://www.instagram.com/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbcdn.net/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["media.js", "instagram.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://keeper-cool.vercel.app/*",
+        "https://keeper.cool/*",
+        "https://www.keeper.cool/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Keeper" }
+}

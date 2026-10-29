@@ -100,12 +100,32 @@ The importer is built from Meta's documented export layouts and tested
 against hand-made samples. It needs a run against a real, current export
 (JSON and HTML) before launch.
 
+## The browser extension
+
+`extension/` is a Chrome extension (Manifest V3, plain JavaScript, no build
+step). Until it's in the Chrome Web Store, the site serves it as
+`/keeper-extension.zip` (packed by `scripts/pack-extension.mjs` before every
+dev run and build) with install steps at `/extension`.
+
+- **Import** reads the user's saved posts and collections from their own
+  logged-in instagram.com tab, using the same requests Instagram's web app
+  makes, then makes ~4 KB cover images so they never expire.
+- **Push** makes Instagram's saved order match Keeper's. Instagram can't move
+  a saved post, so the plan (`src/lib/push.ts`) re-saves the fewest posts
+  needed, bottom-most first, and puts each back in its collections. The
+  extension runs it slowly (40–75 s per post, at most 120 actions an hour and
+  500 a day), survives Chrome restarts, and stops on the first sign of a block.
+- Pages talk to it through `extension/bridge.js`, which only runs on Keeper's
+  own origins.
+
+`node scripts/extension-e2e.mjs` (after `npm run build`) loads the extension
+into Chromium against a fake Instagram and checks import, cover images, a
+one-post push and a full A–Z push.
+
 ## Next
 
-1. **Browser extension**: one-click import straight from the logged-in
-   Instagram tab (with thumbnails and captions), and **Push to Instagram**:
-   re-save posts in the chosen order and sync collections, with a consent
-   step, time estimate, rate limits and a stop on the first block.
-2. **Accounts and sync**: sign-in and a server copy of the library.
-3. **Payments**: Stripe; a free tier with a bookmark cap, paid plans for
+1. Test the extension on a real (spare) Instagram account.
+2. Push the order of posts within collections, and collection order.
+3. **Accounts and sync**: sign-in and a server copy of the library.
+4. **Payments**: Stripe; a free tier with a bookmark cap, paid plans for
    unlimited bookmarks and push-back.

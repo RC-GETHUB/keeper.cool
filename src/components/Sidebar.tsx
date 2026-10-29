@@ -1,9 +1,9 @@
 "use client";
 
-import { Bookmark as BookmarkIcon, Copy, Download, Folder, FolderPlus, Inbox, Pencil, Trash2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import type { Counts, Scope } from "@/lib/library/query";
-import type { Library } from "@/lib/types";
+import { Bookmark as BookmarkIcon, Copy, Download, Folder, FolderPlus, Inbox, Pencil, Search, Trash2 } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { normalize, type Counts, type Scope } from "@/lib/library/query";
+import type { Collection, Library } from "@/lib/types";
 import { InlineEdit, fmtCount } from "./ui";
 
 interface Props {
@@ -52,6 +52,25 @@ function Item({
   );
 }
 
+type CollectionSort = "yours" | "az" | "size";
+
+/** The first post in the collection that has a cover image. */
+function coverOf(lib: Library, c: Collection): string | undefined {
+  for (const id of c.items.slice(0, 12)) {
+    const url = lib.bookmarks[id]?.thumbnailUrl;
+    if (url) return url;
+  }
+  return undefined;
+}
+
+function CollectionIcon({ cover }: { cover?: string }) {
+  if (!cover) return <Folder className="size-4" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={cover} alt="" className="block size-5 rounded object-cover" />;
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
 const iconButton =
   "rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-100";
 
@@ -69,6 +88,17 @@ export function Sidebar({
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<CollectionSort>("yours");
+
+  const shown = useMemo(() => {
+    const terms = normalize(filter).trim();
+    let list = terms ? lib.collections.filter((c) => normalize(c.name).includes(terms)) : lib.collections;
+    if (sort === "az") list = [...list].sort((a, b) => collator.compare(a.name, b.name));
+    if (sort === "size") list = [...list].sort((a, b) => b.items.length - a.items.length);
+    return list;
+  }, [lib.collections, filter, sort]);
+  const many = lib.collections.length > 8;
 
   return (
     <nav className="flex h-full flex-col gap-4 overflow-y-auto p-3" aria-label="Collections">
@@ -120,7 +150,33 @@ export function Sidebar({
             />
           </div>
         )}
-        {lib.collections.map((c) =>
+        {many && (
+          <div className="flex gap-1.5 px-1 pb-1.5">
+            <label className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-neutral-400" />
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Find a collection"
+                aria-label="Find a collection"
+                className="w-full rounded-md border border-neutral-200 bg-transparent py-1 pr-2 pl-7 text-xs outline-none focus:border-accent dark:border-neutral-800"
+              />
+            </label>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as CollectionSort)}
+              aria-label="Sort collections"
+              className="rounded-md border border-neutral-200 bg-white px-1 text-xs dark:border-neutral-800 dark:bg-neutral-950"
+            >
+              <option value="yours">Your order</option>
+              <option value="az">A–Z</option>
+              <option value="size">Most posts</option>
+            </select>
+          </div>
+        )}
+        {filter && shown.length === 0 && <p className="px-2.5 py-1 text-xs text-neutral-500">No collection matches “{filter}”.</p>}
+        {shown.map((c) =>
           renaming === c.id ? (
             <div key={c.id} className="px-1 py-0.5">
               <InlineEdit
@@ -137,7 +193,7 @@ export function Sidebar({
             <Item
               key={c.id}
               active={scope.type === "collection" && scope.id === c.id}
-              icon={<Folder className="size-4" />}
+              icon={<CollectionIcon cover={coverOf(lib, c)} />}
               label={c.name}
               count={counts.collections[c.id] ?? 0}
               onClick={() => onScope({ type: "collection", id: c.id })}

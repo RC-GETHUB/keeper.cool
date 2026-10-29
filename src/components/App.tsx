@@ -8,6 +8,7 @@ import {
   FolderPlus,
   Loader2,
   Menu,
+  Pause,
   Search,
   Send,
   Trash2,
@@ -19,6 +20,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { findDuplicates } from "@/lib/library/duplicates";
 import {
   addToCollection,
+  applyThumbnails,
   applyOrder,
   createCollection,
   deleteCollection,
@@ -31,12 +33,14 @@ import {
   renameCollection,
 } from "@/lib/library/ops";
 import { countLibrary, viewIds, type Scope, type SortMode } from "@/lib/library/query";
+import { useExtension } from "@/lib/extension";
 import { clearLibrary, loadLibrary, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
 import type { ImportResult, Library } from "@/lib/types";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
 import { PreviewPanel } from "./PreviewPanel";
+import { PushDialog } from "./PushDialog";
 import { Sidebar } from "./Sidebar";
 import { Popover, fmtCount, ghostButton, menuItem, plural, primaryButton } from "./ui";
 
@@ -60,6 +64,8 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<number | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
+  const extension = useExtension();
   const [drawer, setDrawer] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
   const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
@@ -290,15 +296,24 @@ export function App() {
           <Upload className="size-4" /> <span className="hidden sm:inline">Import</span>
         </button>
         <div className="hidden lg:block">
-          <button
-            type="button"
-            disabled
-            className={primaryButton}
-            title="Coming next: send your order and collections back to Instagram with the Keeper extension"
-          >
-            <Send className="size-4" /> Push to Instagram
-            <span className="rounded bg-white/25 px-1 text-[10px] uppercase">Soon</span>
-          </button>
+          {extension.job && ["running", "waiting", "paused", "blocked"].includes(extension.job.status) ? (
+            <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Push progress">
+              {extension.job.status === "blocked" || extension.job.status === "paused" ? (
+                <Pause className="size-4" />
+              ) : (
+                <Loader2 className="size-4 animate-spin" />
+              )}
+              Pushing {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
+            </button>
+          ) : extension.status === "ready" ? (
+            <button type="button" onClick={() => setPushOpen(true)} disabled={empty} className={primaryButton}>
+              <Send className="size-4" /> Push to Instagram
+            </button>
+          ) : (
+            <a href="/extension" className={primaryButton} title="Pushing to Instagram needs the Keeper extension">
+              <Send className="size-4" /> Push to Instagram
+            </a>
+          )}
         </div>
       </header>
 
@@ -503,7 +518,15 @@ export function App() {
         )}
       </div>
 
-      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importResult} />}
+      {importOpen && (
+        <ImportDialog
+          extension={extension}
+          onClose={() => setImportOpen(false)}
+          onImport={importResult}
+          onThumbs={(items) => setLib((prev) => prev && applyThumbnails(prev, items))}
+        />
+      )}
+      {pushOpen && <PushDialog lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}
       {confirming && <ConfirmDialog {...confirming} onClose={() => setConfirming(null)} />}
 
       {(toast || saveError) && (
