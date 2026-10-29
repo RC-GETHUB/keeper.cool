@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, ExternalLink, FolderOpen, GripVertical, Pencil } from "lucide-react";
+import { Copy, ExternalLink, Eye, FolderOpen, GripVertical, Pencil } from "lucide-react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DuplicateReport } from "@/lib/library/duplicates";
 import { displayName, kindLabel } from "@/lib/library/query";
@@ -21,6 +21,9 @@ interface Props {
   canDrag: boolean;
   onMove: (ids: string[], toIndex: number) => void;
   onRename: (id: string, title: string) => void;
+  /** The bookmark open in the preview panel. */
+  previewId: string | null;
+  onPreview: (id: string) => void;
   membership: Map<string, string[]>;
   duplicates: DuplicateReport;
   showCollections: boolean;
@@ -120,7 +123,15 @@ export function BookmarkList(props: Props) {
 
   // Rows get handlers that never change identity, so a row only re-renders
   // when its own bookmark or state changes (not on every scroll or drag move).
-  const callbacks = { startDrag, moveDrag, endDrag, onMove, onSelect: props.onSelect, onRename: props.onRename };
+  const callbacks = {
+    startDrag,
+    moveDrag,
+    endDrag,
+    onMove,
+    onSelect: props.onSelect,
+    onRename: props.onRename,
+    onPreview: props.onPreview,
+  };
   const latest = useRef(callbacks);
   latest.current = callbacks;
   const handlers = useMemo<RowHandlers>(
@@ -132,6 +143,7 @@ export function BookmarkList(props: Props) {
       select: (id, index, range) => latest.current.onSelect(id, index, range),
       moveTo: (id, index) => latest.current.onMove([id], index),
       rename: (id, title) => latest.current.onRename(id, title),
+      preview: (id) => latest.current.onPreview(id),
       setRenaming,
     }),
     [],
@@ -161,6 +173,7 @@ export function BookmarkList(props: Props) {
         selected={selected.has(bookmark.id)}
         canDrag={canDrag}
         renaming={renaming === bookmark.id}
+        previewing={props.previewId === bookmark.id}
         dimmed={dragging?.has(bookmark.id) ?? false}
         collections={props.showCollections || props.duplicates.inCollections.has(bookmark.id) ? props.membership.get(bookmark.id) : undefined}
         showCollections={props.showCollections}
@@ -207,6 +220,7 @@ interface RowHandlers {
   select: (id: string, index: number, range: boolean) => void;
   moveTo: (id: string, index: number) => void;
   rename: (id: string, title: string) => void;
+  preview: (id: string) => void;
   setRenaming: (id: string | null) => void;
 }
 
@@ -217,6 +231,7 @@ const Row = memo(function Row({
   selected: isSelected,
   canDrag,
   renaming,
+  previewing,
   dimmed,
   collections = [],
   showCollections,
@@ -230,6 +245,7 @@ const Row = memo(function Row({
   selected: boolean;
   canDrag: boolean;
   renaming: boolean;
+  previewing: boolean;
   dimmed: boolean;
   collections?: string[];
   showCollections: boolean;
@@ -251,7 +267,7 @@ const Row = memo(function Row({
       onClick={(e) => h.select(bookmark.id, index, e.shiftKey)}
       className={`absolute inset-x-0 flex items-center gap-2 border-b border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${
         isSelected ? "bg-accent-soft dark:bg-accent/15" : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
-      } ${dimmed ? "opacity-40" : ""}`}
+      } ${previewing ? "shadow-[inset_3px_0_0_var(--color-accent)]" : ""} ${dimmed ? "opacity-40" : ""}`}
       style={{ top: index * ROW, height: ROW }}
     >
       <button
@@ -287,7 +303,18 @@ const Row = memo(function Row({
         aria-label={`Select ${name}`}
         className="size-4 shrink-0 accent-accent"
       />
-      <Thumb bookmark={bookmark} />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          h.preview(bookmark.id);
+        }}
+        aria-label={`Preview ${name}`}
+        title="Preview"
+        className="shrink-0 rounded-lg focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <Thumb bookmark={bookmark} />
+      </button>
       <div className="min-w-0 flex-1">
         {renaming ? (
           <InlineEdit
@@ -343,6 +370,18 @@ const Row = memo(function Row({
         className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-200/60 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
       >
         <Pencil className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          h.preview(bookmark.id);
+        }}
+        aria-label={`Preview ${name}`}
+        title="Preview"
+        className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-200/60 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+      >
+        <Eye className="size-4" />
       </button>
       <a
         href={bookmark.url}

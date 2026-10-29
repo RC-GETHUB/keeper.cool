@@ -99,8 +99,8 @@ export function ImportDialog({ onClose, onImport }: Props) {
                 <b>Format</b> to <b>JSON</b> (HTML works too) and <b>Media quality</b> to <b>Low</b>.
               </li>
               <li>
-                Tap <b>Start export</b> and enter your Instagram password if asked. Instagram emails you when it&apos;s ready: often
-                within the hour, though Meta says it can take up to 30 days. The download works for 4 days.
+                Tap <b>Start export</b> and enter your Instagram password if asked. Instagram emails you when it&apos;s ready, usually
+                within minutes when only Saved is ticked (Meta allows itself up to 30 days). The download works for 4 days.
               </li>
               <li>Download the zip and drop it below. No need to unzip it.</li>
             </ol>

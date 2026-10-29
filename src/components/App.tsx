@@ -36,6 +36,7 @@ import { syntheticImport } from "@/lib/synthetic";
 import type { ImportResult, Library } from "@/lib/types";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
+import { PreviewPanel } from "./PreviewPanel";
 import { Sidebar } from "./Sidebar";
 import { Popover, fmtCount, ghostButton, menuItem, plural, primaryButton } from "./ui";
 
@@ -64,6 +65,7 @@ export function App() {
   const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
   const [saveError, setSaveError] = useState(false);
   const [confirming, setConfirming] = useState<Confirmation | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Load once, then save (debounced) after every change.
@@ -478,11 +480,27 @@ export function App() {
                   membership={membership}
                   duplicates={duplicates}
                   showCollections={scope.type !== "collection"}
+                  previewId={previewId}
+                  onPreview={setPreviewId}
                 />
               )}
             </>
           )}
         </main>
+
+        {previewId && lib.bookmarks[previewId] && (
+          <PreviewPanel
+            bookmark={lib.bookmarks[previewId]}
+            collections={membership.get(previewId) ?? []}
+            index={ids.indexOf(previewId)}
+            count={ids.length}
+            onStep={(delta) => {
+              const next = ids[ids.indexOf(previewId) + delta];
+              if (next) setPreviewId(next);
+            }}
+            onClose={() => setPreviewId(null)}
+          />
+        )}
       </div>
 
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={importResult} />}
