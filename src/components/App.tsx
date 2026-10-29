@@ -9,6 +9,7 @@ import {
   Loader2,
   Menu,
   Pause,
+  RotateCcw,
   Search,
   Send,
   Trash2,
@@ -29,12 +30,15 @@ import {
   moveCollection,
   moveItems,
   orderCollections,
+  canRestoreInstagramOrder,
+  restoreCollectionOrder,
+  restoreInstagramOrder,
   removeBookmarks,
   removeFromCollection,
   renameBookmark,
   renameCollection,
 } from "@/lib/library/ops";
-import { countLibrary, viewIds, type Scope, type SortMode } from "@/lib/library/query";
+import { countLibrary, viewIds, type CollectionSort, type Scope, type SortMode } from "@/lib/library/query";
 import { useExtension } from "@/lib/extension";
 import { clearLibrary, loadLibrary, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
@@ -55,6 +59,16 @@ const SORTS: { value: SortMode; label: string }[] = [
 ];
 
 const HISTORY = 50;
+
+const COLLECTION_SORT_NAMES: Record<CollectionSort, string> = {
+  custom: "",
+  az: "A–Z",
+  za: "Z–A",
+  recent: "by most recently added to",
+  newest: "newest first",
+  oldest: "oldest first",
+  size: "by most posts",
+};
 
 export function App() {
   const [lib, setLib] = useState<Library | null>(null);
@@ -350,7 +364,10 @@ export function App() {
               });
             }}
             onMoveCollection={(id, to) => commit(moveCollection(lib, id, to))}
-            onOrderCollections={(ids) => commit(orderCollections(lib, ids), "Saved the collection order")}
+            onOrderCollections={(ids, sort) => commit(orderCollections(lib, ids), `Sorted collections ${COLLECTION_SORT_NAMES[sort]}`)}
+            onRestoreCollectionOrder={
+              lib.instagramCollectionOrder ? () => commit(restoreCollectionOrder(lib), "Collections back in Instagram's order") : undefined
+            }
             onBackup={backup}
             onReset={reset}
           />
@@ -448,6 +465,21 @@ export function App() {
                   </div>
                 )}
                 <div className="ml-auto flex items-center gap-2">
+                  {ordered && canRestoreInstagramOrder(lib, collectionId) && (
+                    <button
+                      type="button"
+                      className={ghostButton}
+                      title="Put this list back in the order Instagram had it at your last import"
+                      onClick={() => {
+                        const next = restoreInstagramOrder(lib, collectionId);
+                        setSort("custom");
+                        if (next === lib) setToast({ message: "Already in Instagram's order", undo: false });
+                        else commit(next, "Back in Instagram's order");
+                      }}
+                    >
+                      <RotateCcw className="size-4" /> <span className="hidden xl:inline">Instagram&apos;s order</span>
+                    </button>
+                  )}
                   {ordered && sort !== "custom" && (
                     <button
                       type="button"
@@ -495,6 +527,13 @@ export function App() {
                   onSelect={select}
                   canDrag={canDrag}
                   onMove={(moving, toIndex) => commit(moveItems(lib, collectionId, moving, toIndex))}
+                  onDropToCollection={(moving, id) => {
+                    const c = lib.collections.find((x) => x.id === id);
+                    const already = c ? moving.filter((x) => c.items.includes(x)).length : 0;
+                    const next = addToCollection(lib, id, moving);
+                    if (next === lib) setToast({ message: `Already in “${c?.name}”`, undo: false });
+                    else commit(next, `Added ${plural(moving.length - already, "bookmark")} to “${c?.name}”`);
+                  }}
                   onRename={(id, title) => commit(renameBookmark(lib, id, title))}
                   membership={membership}
                   duplicates={duplicates}

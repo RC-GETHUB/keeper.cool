@@ -57,13 +57,32 @@ describe("saved_collections.json", () => {
   it("groups posts under their collection header", () => {
     const { collections, bookmarks } = parseSavedCollectionsJson(COLLECTIONS);
     expect(collections).toEqual([
-      { name: "Recipes 🍝", createdAt: 1_600_000_000_000, items: ["AAAAAAAAAAA"] },
+      { name: "Recipes 🍝", createdAt: 1_600_000_000_000, updatedAt: 1_700_000_400_000, items: ["AAAAAAAAAAA"] },
       { name: "Cafés", createdAt: 1_600_000_100_000, items: ["BBBBBBBBBBB", "AAAAAAAAAAA", "DDDDDDDDDDD"] },
       { name: "Empty", createdAt: 1_600_000_200_000, items: [] },
     ]);
     expect(bookmarks.find((b) => b.id === "DDDDDDDDDDD")).toMatchObject({ author: "only.here" });
     // Added-to-collection time is not the save time.
     expect(bookmarks.every((b) => b.savedAt === undefined)).toBe(true);
+  });
+
+  it("tells the creation date from the update date by their labels", () => {
+    const text = JSON.stringify({
+      saved_saved_collections: [
+        {
+          title: "Collection",
+          string_map_data: {
+            "Update Time": { timestamp: 1_700_000_000 },
+            Name: { value: "Travel" },
+            "Creation Time": { timestamp: 1_500_000_000 },
+          },
+        },
+        { title: "a.b", string_map_data: { Name: { value: "a.b", href: "https://www.instagram.com/p/AAAAAAAAAAA/" }, "Added Time": { timestamp: 1_650_000_000 } } },
+      ],
+    });
+    expect(parseSavedCollectionsJson(text).collections).toEqual([
+      { name: "Travel", createdAt: 1_500_000_000_000, updatedAt: 1_700_000_000_000, items: ["AAAAAAAAAAA"] },
+    ]);
   });
 
   it("reads collections that nest their posts", () => {

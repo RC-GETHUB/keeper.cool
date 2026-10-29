@@ -25,8 +25,12 @@ export interface Collection {
   /** Instagram's id for the collection, when it came from the extension. */
   instagramId?: string;
   createdAt?: number;
+  /** When a post was last added to it (on Instagram, or in Keeper). */
+  updatedAt?: number;
   /** Bookmark ids in the user's order. */
   items: string[];
+  /** Its posts in Instagram's order at the last import, for "Restore Instagram's order". */
+  instagramItems?: string[];
 }
 
 export interface Library {
@@ -37,6 +41,10 @@ export interface Library {
   collections: Collection[];
   /** The Instagram account the extension last imported from. */
   instagram?: InstagramAccount;
+  /** Saved posts in Instagram's order at the last import, for "Restore Instagram's order". */
+  instagramOrder?: string[];
+  /** Collection ids in Instagram's order at the last import. */
+  instagramCollectionOrder?: string[];
   updatedAt: number;
 }
 
@@ -49,6 +57,7 @@ export interface ImportedCollection {
   name: string;
   instagramId?: string;
   createdAt?: number;
+  updatedAt?: number;
   /** Bookmark ids, newest added first (Instagram's order). */
   items: string[];
 }

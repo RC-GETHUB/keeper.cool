@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark as BookmarkIcon, Check, Copy, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
+import { Bookmark as BookmarkIcon, Copy, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { sortCollections, type CollectionSort, type Counts, type Scope } from "@/lib/library/query";
 import type { Collection, Library } from "@/lib/types";
@@ -17,8 +17,10 @@ interface Props {
   onDeleteCollection: (id: string) => void;
   /** Moves a collection to `toIndex` of the list as it is without it. */
   onMoveCollection: (id: string, toIndex: number) => void;
-  /** Saves the shown order (e.g. A–Z) as the custom order. */
-  onOrderCollections: (ids: string[]) => void;
+  /** Puts the collections in this order (a sort the user picked). */
+  onOrderCollections: (ids: string[], sort: CollectionSort) => void;
+  /** Puts the collections back in Instagram's order (when Keeper knows it). */
+  onRestoreCollectionOrder?: () => void;
   onBackup: () => void;
   onReset: () => void;
 }
@@ -69,11 +71,12 @@ function Item({
 }
 
 const SORTS: { value: CollectionSort; label: string }[] = [
-  { value: "custom", label: "Custom order" },
+  { value: "custom", label: "Your order" },
   { value: "az", label: "A–Z" },
   { value: "za", label: "Z–A" },
-  { value: "newest", label: "Newest" },
-  { value: "oldest", label: "Oldest" },
+  { value: "recent", label: "Recently added to" },
+  { value: "newest", label: "Newest created" },
+  { value: "oldest", label: "Oldest created" },
   { value: "size", label: "Most posts" },
 ];
 
@@ -106,16 +109,24 @@ export function Sidebar({
   onDeleteCollection,
   onMoveCollection,
   onOrderCollections,
+  onRestoreCollectionOrder,
   onBackup,
   onReset,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<CollectionSort>("custom");
-  const shown = useMemo(() => sortCollections(lib.collections, sort, filter), [lib.collections, sort, filter]);
+  // Choosing a sort reorders the collections for good (it can be undone);
+  // the menu remembers which one was applied until the user drags.
+  const [sort, setSort] = useState<CollectionSort | "instagram">("custom");
+  const shown = useMemo(() => sortCollections(lib.collections, "custom", filter), [lib.collections, filter]);
   const many = lib.collections.length > 8;
-  const canDrag = sort === "custom" && !filter;
+  const canDrag = !filter;
+  const applySort = (next: CollectionSort | "instagram") => {
+    setSort(next);
+    if (next === "instagram") onRestoreCollectionOrder?.();
+    else if (next !== "custom") onOrderCollections(sortCollections(lib.collections, next).map((c) => c.id), next);
+  };
 
   // Dragging: the target is the gap before the collection under the pointer.
   const listRef = useRef<HTMLDivElement>(null);
@@ -131,7 +142,10 @@ export function Sidebar({
   const dropAt = (id: string, target: number) => {
     const from = lib.collections.findIndex((c) => c.id === id);
     const to = target > from ? target - 1 : target;
-    if (to !== from) onMoveCollection(id, to);
+    if (to !== from) {
+      onMoveCollection(id, to);
+      setSort("custom");
+    }
   };
 
   const handleFor = (id: string, index: number, name: string) =>
@@ -168,6 +182,7 @@ export function Sidebar({
           if (to < 0 || to >= lib.collections.length) return;
           e.preventDefault();
           onMoveCollection(id, to);
+          setSort("custom");
           requestAnimationFrame(() =>
             listRef.current?.querySelector<HTMLElement>(`[data-collection-id="${id}"] button`)?.focus(),
           );
@@ -244,7 +259,7 @@ export function Sidebar({
             )}
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value as CollectionSort)}
+              onChange={(e) => applySort(e.target.value as CollectionSort | "instagram")}
               aria-label="Sort collections"
               className={`rounded-md border border-neutral-200 bg-white px-1 py-1 text-xs dark:border-neutral-800 dark:bg-neutral-950 ${many ? "" : "flex-1"}`}
             >
@@ -253,20 +268,8 @@ export function Sidebar({
                   {o.label}
                 </option>
               ))}
+              {onRestoreCollectionOrder && <option value="instagram">Instagram&apos;s order</option>}
             </select>
-            {sort !== "custom" && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOrderCollections(shown.map((c) => c.id));
-                  setSort("custom");
-                }}
-                className="flex w-full items-center justify-center gap-1 rounded-md border border-neutral-200 py-1 text-xs font-medium text-neutral-700 hover:border-accent hover:text-accent dark:border-neutral-800 dark:text-neutral-300"
-                title="Make this the custom order"
-              >
-                <Check className="size-3.5" /> Keep this order
-              </button>
-            )}
           </div>
         )}
         {filter && shown.length === 0 && <p className="px-2.5 py-1 text-xs text-neutral-500">No collection matches “{filter}”.</p>}

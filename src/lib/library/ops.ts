@@ -56,6 +56,7 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
   }
 
   const collections = lib.collections.map((c) => ({ ...c }));
+  const collectionOrder: string[] = [];
   let collectionsAdded = 0;
   for (const incoming of result.collections) {
     const existing =
@@ -66,18 +67,33 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
       const created: Collection = { id: newId(), name: incoming.name, instagramName: incoming.name, items: [...incoming.items] };
       if (incoming.instagramId) created.instagramId = incoming.instagramId;
       if (incoming.createdAt) created.createdAt = incoming.createdAt;
+      if (incoming.updatedAt) created.updatedAt = incoming.updatedAt;
+      created.instagramItems = [...incoming.items];
       collections.push(created);
+      collectionOrder.push(created.id);
       collectionsAdded++;
       continue;
     }
     existing.instagramName = incoming.name;
+    existing.instagramItems = [...incoming.items];
+    collectionOrder.push(existing.id);
     if (incoming.instagramId) existing.instagramId = incoming.instagramId;
+    // Re-importing corrects the dates.
+    if (incoming.createdAt) existing.createdAt = incoming.createdAt;
+    if ((incoming.updatedAt ?? 0) > (existing.updatedAt ?? 0)) existing.updatedAt = incoming.updatedAt;
     const have = new Set(existing.items);
     const added = incoming.items.filter((id) => !have.has(id));
     if (added.length) existing.items = [...added, ...existing.items];
   }
 
-  const patch: Partial<Library> = { bookmarks, order: [...fresh, ...lib.order], collections };
+  const patch: Partial<Library> = {
+    bookmarks,
+    order: [...fresh, ...lib.order],
+    collections,
+    // Instagram's order as of this import, for "Restore Instagram's order".
+    instagramOrder: result.bookmarks.map((b) => b.id),
+  };
+  if (result.collections.length) patch.instagramCollectionOrder = collectionOrder;
   if (result.account) patch.instagram = result.account;
   return {
     library: touch(lib, patch),
@@ -135,7 +151,8 @@ export function collectionNameError(lib: Library, name: string, exceptId?: strin
 export function createCollection(lib: Library, name: string, items: string[] = []): { library: Library; id: string } {
   const error = collectionNameError(lib, name);
   if (error) throw new Error(error);
-  const collection: Collection = { id: newId(), name: name.trim(), createdAt: Date.now(), items: unique(items) };
+  const now = Date.now();
+  const collection: Collection = { id: newId(), name: name.trim(), createdAt: now, updatedAt: now, items: unique(items) };
   return { library: touch(lib, { collections: [...lib.collections, collection] }), id: collection.id };
 }
 
@@ -174,12 +191,50 @@ export function orderCollections(lib: Library, ids: string[]): Library {
   return collections.every((c, i) => c === lib.collections[i]) ? lib : touch(lib, { collections });
 }
 
+/** Whether Keeper knows Instagram's order for this list (all bookmarks when `collectionId` is null). */
+export function canRestoreInstagramOrder(lib: Library, collectionId: string | null): boolean {
+  if (collectionId === null) return Boolean(lib.instagramOrder?.length) || Object.values(lib.bookmarks).some((b) => b.savedAt);
+  return Boolean(lib.collections.find((c) => c.id === collectionId)?.instagramItems);
+}
+
+/**
+ * Puts a list back in Instagram's order as of the last import. Posts Keeper
+ * doesn't have an Instagram position for (added since) stay on top in their
+ * current order. Libraries imported before Keeper kept this fall back to
+ * newest saved first, which is the same thing for an export import.
+ */
+export function restoreInstagramOrder(lib: Library, collectionId: string | null): Library {
+  const list = collectionId === null ? lib.order : lib.collections.find((c) => c.id === collectionId)?.items;
+  if (!list) return lib;
+  let reference = collectionId === null ? lib.instagramOrder : lib.collections.find((c) => c.id === collectionId)?.instagramItems;
+  if (!reference && collectionId === null) {
+    reference = list
+      .filter((id) => lib.bookmarks[id]?.savedAt !== undefined)
+      .sort((a, b) => lib.bookmarks[b].savedAt! - lib.bookmarks[a].savedAt!);
+  }
+  if (!reference) return lib;
+  const inList = new Set(list);
+  const ranked = new Set(reference.filter((id) => inList.has(id)));
+  const next = [...list.filter((id) => !ranked.has(id)), ...ranked];
+  return next.every((id, i) => id === list[i]) ? lib : setOrder(lib, collectionId, next);
+}
+
+/** Puts the collection list back in Instagram's order; collections made in Keeper go after. */
+export function restoreCollectionOrder(lib: Library): Library {
+  const reference = lib.instagramCollectionOrder;
+  if (!reference) return lib;
+  const rank = new Map(reference.map((id, i) => [id, i]));
+  const last = reference.length;
+  const collections = [...lib.collections].sort((a, b) => (rank.get(a.id) ?? last) - (rank.get(b.id) ?? last));
+  return collections.every((c, i) => c === lib.collections[i]) ? lib : touch(lib, { collections });
+}
+
 /** Adds bookmarks to the top of a collection, skipping ones already in it. */
 export function addToCollection(lib: Library, id: string, ids: string[]): Library {
   return updateCollection(lib, id, (c) => {
     const have = new Set(c.items);
     const added = unique(ids).filter((x) => !have.has(x) && lib.bookmarks[x]);
-    return added.length ? { ...c, items: [...added, ...c.items] } : c;
+    return added.length ? { ...c, items: [...added, ...c.items], updatedAt: Date.now() } : c;
   });
 }
 

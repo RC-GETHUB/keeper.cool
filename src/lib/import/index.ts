@@ -74,6 +74,8 @@ export function parseExportFiles(files: ExportFile[]): ImportResult {
         merged.set(collection.name, { collection: { ...collection, items: [...collection.items] }, ids: new Set(collection.items) });
         continue;
       }
+      found.collection.createdAt ??= collection.createdAt;
+      if ((collection.updatedAt ?? 0) > (found.collection.updatedAt ?? 0)) found.collection.updatedAt = collection.updatedAt;
       for (const id of collection.items) {
         if (!found.ids.has(id)) {
           found.ids.add(id);

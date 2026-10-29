@@ -10,12 +10,14 @@ interface EntryFields {
   posts: { ref: PostRef; timestamp?: number }[];
   timestamps: number[];
   labels: Map<string, string>;
+  /** Timestamps by their label ("Creation Time", "Update Time", "Added Time", …), in ms. */
+  dates: Map<string, number>;
 }
 
 const TIMESTAMP_KEYS = new Set(["timestamp", "timestamp_value", "creation_timestamp"]);
 
 function readEntry(entry: unknown): EntryFields {
-  const fields: EntryFields = { posts: [], timestamps: [], labels: new Map() };
+  const fields: EntryFields = { posts: [], timestamps: [], labels: new Map(), dates: new Map() };
   if (entry && typeof entry === "object" && typeof (entry as { title?: unknown }).title === "string") {
     fields.title = fixMojibake((entry as { title: string }).title);
   }
@@ -43,16 +45,19 @@ function readEntry(entry: unknown): EntryFields {
         fields.posts.push({ ref, timestamp: ownTimestamp });
       }
     }
-    // { "string_map_data": { "Name": { "value": "Recipes" } } }
+    // { "string_map_data": { "Name": { "value": "Recipes" }, "Creation Time": { "timestamp": 1600000000 } } }
     if (obj.string_map_data && typeof obj.string_map_data === "object") {
       for (const [label, value] of Object.entries(obj.string_map_data as Record<string, unknown>)) {
-        const v = (value as { value?: unknown } | null)?.value;
+        const { value: v, timestamp: t } = (value ?? {}) as { value?: unknown; timestamp?: unknown };
         if (typeof v === "string" && !fields.labels.has(label)) fields.labels.set(label, fixMojibake(v));
+        if (typeof t === "number" && t > 0 && !fields.dates.has(label)) fields.dates.set(label, toMs(t));
       }
     }
-    // { "label_values": [{ "label": "Name", "value": "Recipes" }] }
-    if (typeof obj.label === "string" && typeof obj.value === "string" && !fields.labels.has(obj.label)) {
-      fields.labels.set(obj.label, fixMojibake(obj.value));
+    // { "label_values": [{ "label": "Name", "value": "Recipes" }, { "label": "Creation Time", "timestamp_value": 1600000000 }] }
+    if (typeof obj.label === "string") {
+      if (typeof obj.value === "string" && !fields.labels.has(obj.label)) fields.labels.set(obj.label, fixMojibake(obj.value));
+      const t = obj.timestamp_value ?? obj.timestamp;
+      if (typeof t === "number" && t > 0 && !fields.dates.has(obj.label)) fields.dates.set(obj.label, toMs(t));
     }
     for (const value of Object.values(obj)) {
       if (value && typeof value === "object") walk(value);
@@ -73,6 +78,14 @@ function entriesOf(root: unknown): unknown[] {
   return best;
 }
 
+function dated(fields: EntryFields, ...names: string[]): number | undefined {
+  for (const name of names) {
+    const value = fields.dates.get(name);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function labelled(fields: EntryFields, ...names: string[]): string | undefined {
   for (const name of names) {
     const value = fields.labels.get(name);
@@ -91,7 +104,7 @@ function toBookmark(post: { ref: PostRef; timestamp?: number }, fields: EntryFie
   const bookmark: Bookmark = { id: post.ref.id, kind: post.ref.kind, url: post.ref.url };
   const author = authorOf(fields);
   if (author) bookmark.author = author;
-  const savedAt = post.timestamp ?? fields.timestamps[0];
+  const savedAt = dated(fields, "Saved on") ?? post.timestamp ?? fields.timestamps[0];
   if (savedAt) bookmark.savedAt = savedAt;
   return bookmark;
 }
@@ -146,7 +159,11 @@ export function parseSavedCollectionsJson(text: string): ParsedCollections {
         continue;
       }
       current = { name: name ?? "Untitled collection", items: [] };
-      if (fields.timestamps[0]) current.createdAt = fields.timestamps[0];
+      // Use the labelled dates; an unlabelled timestamp is taken as the creation time.
+      const created = dated(fields, "Creation Time", "Created") ?? (fields.dates.size ? undefined : fields.timestamps[0]);
+      if (created) current.createdAt = created;
+      const updated = dated(fields, "Update Time", "Updated", "Last Updated");
+      if (updated) current.updatedAt = updated;
       collections.push(current);
       currentIds = new Set();
       for (const post of fields.posts) {
@@ -161,6 +178,9 @@ export function parseSavedCollectionsJson(text: string): ParsedCollections {
       collections.push(current);
     }
     const post = fields.posts[0];
+    // When the post was added to this collection; the newest one is when the collection was last added to.
+    const added = dated(fields, "Added Time", "Added") ?? post.timestamp;
+    if (added && added > (current.updatedAt ?? 0)) current.updatedAt = added;
     if (!currentIds.has(post.ref.id)) {
       currentIds.add(post.ref.id);
       current.items.push(post.ref.id);

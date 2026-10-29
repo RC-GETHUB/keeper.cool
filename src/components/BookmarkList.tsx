@@ -18,8 +18,11 @@ interface Props {
   viewKey: string;
   selected: Set<string>;
   onSelect: (id: string, index: number, range: boolean) => void;
+  /** Reordering by drag works in custom order without a search. */
   canDrag: boolean;
   onMove: (ids: string[], toIndex: number) => void;
+  /** Dropping bookmarks on a collection in the sidebar adds them to it. */
+  onDropToCollection: (ids: string[], collectionId: string) => void;
   onRename: (id: string, title: string) => void;
   /** The bookmark open in the preview panel. */
   previewId: string | null;
@@ -32,9 +35,25 @@ interface Props {
 interface DragState {
   ids: string[];
   label: string;
-  target: number;
+  /** Where the rows would land in the list, or null when the pointer is outside it. */
+  target: number | null;
+  /** The sidebar collection under the pointer, if any. */
+  collection: { id: string; name: string } | null;
   x: number;
   y: number;
+}
+
+/** The sidebar collection under the pointer (sidebar rows carry data-collection-id). */
+function collectionAt(x: number, y: number): HTMLElement | null {
+  return document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-collection-id]") ?? null;
+}
+
+let highlighted: HTMLElement | null = null;
+function highlight(el: HTMLElement | null) {
+  if (highlighted === el) return;
+  highlighted?.removeAttribute("data-drop-target");
+  el?.setAttribute("data-drop-target", "");
+  highlighted = el;
 }
 
 /**
@@ -64,20 +83,52 @@ export function BookmarkList(props: Props) {
     setScrollTop(0);
   }, [viewKey]);
 
-  const targetFor = (clientY: number) => {
+  /** The drop slot in the list, or null when the pointer isn't over the list (or reordering is off). */
+  const targetFor = (clientX: number, clientY: number) => {
     const el = scrollRef.current!;
-    const y = clientY - el.getBoundingClientRect().top + el.scrollTop;
+    const rect = el.getBoundingClientRect();
+    if (!canDrag || clientX < rect.left || clientX > rect.right || clientY < rect.top - EDGE || clientY > rect.bottom + EDGE) return null;
+    const y = clientY - rect.top + el.scrollTop;
     return Math.max(0, Math.min(ids.length, Math.round(y / ROW)));
+  };
+
+  const dragUpdate = (clientX: number, clientY: number) => {
+    const el = collectionAt(clientX, clientY);
+    highlight(el);
+    const id = el?.dataset.collectionId;
+    const collection = id ? { id, name: lib.collections.find((c) => c.id === id)?.name ?? "" } : null;
+    return { target: collection ? null : targetFor(clientX, clientY), collection };
+  };
+
+  // While dragging, the pointer is followed on the window, so the drag keeps
+  // working when the row it started on scrolls out of view.
+  const windowHandlers = useRef<{ move: (e: PointerEvent) => void; up: () => void; cancel: () => void } | null>(null);
+  const stopListening = () => {
+    const w = windowHandlers.current;
+    if (!w) return;
+    window.removeEventListener("pointermove", w.move);
+    window.removeEventListener("pointerup", w.up);
+    window.removeEventListener("pointercancel", w.cancel);
+    windowHandlers.current = null;
   };
 
   const endDrag = (commit: boolean) => {
     const d = dragRef.current;
     if (!d) return;
+    stopListening();
     cancelAnimationFrame(d.frame);
     dragRef.current = null;
-    const target = targetFor(d.clientY);
+    // The click that ends a drag is ignored; anything after it counts again.
+    setTimeout(() => (suppressClick.current = false), 0);
+    const { target, collection } = dragUpdate(d.clientX, d.clientY);
+    highlight(null);
     setDrag(null);
     if (!commit) return;
+    if (collection) {
+      props.onDropToCollection(d.ids, collection.id);
+      return;
+    }
+    if (target === null) return;
     // Where the group lands in the list as it is without the moving rows.
     const moving = new Set(d.ids);
     let toIndex = 0;
@@ -85,45 +136,83 @@ export function BookmarkList(props: Props) {
     onMove(d.ids, toIndex);
   };
 
-  const startDrag = (e: React.PointerEvent, id: string) => {
-    if (e.button !== 0 || !canDrag) return;
+  const startDrag = (e: { clientX: number; clientY: number; preventDefault: () => void }, id: string) => {
     e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
     const moving = selected.has(id) ? ids.filter((x) => selected.has(x)) : [id];
     const label = moving.length > 1 ? plural(moving.length, "bookmark") : displayName(lib.bookmarks[id]);
     const state = { ids: moving, clientX: e.clientX, clientY: e.clientY, frame: 0 };
     dragRef.current = state;
-    setDrag({ ids: moving, label, target: targetFor(e.clientY), x: e.clientX, y: e.clientY });
+    setDrag({ ids: moving, label, ...dragUpdate(e.clientX, e.clientY), x: e.clientX, y: e.clientY });
 
-    // Scroll while the pointer is held near the top or bottom edge.
+    // Scroll the list while the pointer is held near its top or bottom edge.
     const tick = () => {
       const d = dragRef.current;
       const el = scrollRef.current;
       if (!d || !el) return;
       const rect = el.getBoundingClientRect();
+      const inside = d.clientX >= rect.left && d.clientX <= rect.right;
       let dy = 0;
-      if (d.clientY < rect.top + EDGE) dy = -Math.min(1, (rect.top + EDGE - d.clientY) / EDGE) * 20;
-      else if (d.clientY > rect.bottom - EDGE) dy = Math.min(1, (d.clientY - rect.bottom + EDGE) / EDGE) * 20;
+      if (inside && d.clientY < rect.top + EDGE) dy = -Math.min(1, (rect.top + EDGE - d.clientY) / EDGE) * 20;
+      else if (inside && d.clientY > rect.bottom - EDGE) dy = Math.min(1, (d.clientY - rect.bottom + EDGE) / EDGE) * 20;
       if (dy) {
         el.scrollTop += dy;
-        setDrag((prev) => prev && { ...prev, target: targetFor(d.clientY) });
+        setDrag((prev) => prev && { ...prev, ...dragUpdate(d.clientX, d.clientY) });
       }
       d.frame = requestAnimationFrame(tick);
     };
     state.frame = requestAnimationFrame(tick);
+
+    stopListening();
+    const w = {
+      move: (ev: PointerEvent) => latest.current.moveDrag(ev),
+      up: () => latest.current.endDrag(true),
+      cancel: () => latest.current.endDrag(false),
+    };
+    window.addEventListener("pointermove", w.move);
+    window.addEventListener("pointerup", w.up);
+    window.addEventListener("pointercancel", w.cancel);
+    windowHandlers.current = w;
   };
 
-  const moveDrag = (e: React.PointerEvent) => {
+  // With a mouse, a row can be dragged from anywhere on it once the pointer
+  // has moved a few pixels; a plain click still selects it. On touch screens
+  // only the grip drags, so swiping still scrolls.
+  const pending = useRef<{ id: string; x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const rowDown = (e: React.PointerEvent, id: string) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+    pending.current = { id, x: e.clientX, y: e.clientY };
+    const watch = (ev: PointerEvent) => {
+      const p = pending.current;
+      if (!p) return window.removeEventListener("pointermove", watch);
+      if (Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 6) return;
+      pending.current = null;
+      window.removeEventListener("pointermove", watch);
+      suppressClick.current = true;
+      latest.current.startDrag(ev, p.id);
+    };
+    const release = () => {
+      pending.current = null;
+      window.removeEventListener("pointermove", watch);
+      window.removeEventListener("pointerup", release);
+    };
+    window.addEventListener("pointermove", watch);
+    window.addEventListener("pointerup", release);
+  };
+
+  const moveDrag = (e: { clientX: number; clientY: number }) => {
     const d = dragRef.current;
     if (!d) return;
     d.clientX = e.clientX;
     d.clientY = e.clientY;
-    setDrag((prev) => prev && { ...prev, target: targetFor(e.clientY), x: e.clientX, y: e.clientY });
+    setDrag((prev) => prev && { ...prev, ...dragUpdate(e.clientX, e.clientY), x: e.clientX, y: e.clientY });
   };
 
   // Rows get handlers that never change identity, so a row only re-renders
   // when its own bookmark or state changes (not on every scroll or drag move).
   const callbacks = {
+    rowDown,
     startDrag,
     moveDrag,
     endDrag,
@@ -136,10 +225,18 @@ export function BookmarkList(props: Props) {
   latest.current = callbacks;
   const handlers = useMemo<RowHandlers>(
     () => ({
-      down: (e, id) => latest.current.startDrag(e, id),
-      move: (e) => latest.current.moveDrag(e),
-      up: () => latest.current.endDrag(true),
-      cancel: () => latest.current.endDrag(false),
+      down: (e, id) => {
+        if (e.button !== 0) return;
+        latest.current.startDrag(e, id);
+      },
+      rowDown: (e, id) => latest.current.rowDown(e, id),
+      clickGuard: (e) => {
+        // A drag that started on the row shouldn't also select it.
+        if (!suppressClick.current) return;
+        suppressClick.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      },
       select: (id, index, range) => latest.current.onSelect(id, index, range),
       moveTo: (id, index) => latest.current.onMove([id], index),
       rename: (id, title) => latest.current.onRename(id, title),
@@ -193,7 +290,7 @@ export function BookmarkList(props: Props) {
     >
       <div style={{ height: ids.length * ROW }} className="relative" role="list" aria-rowcount={ids.length}>
         {rows}
-        {drag && (
+        {drag && drag.target !== null && (
           <div
             className="pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded bg-accent"
             style={{ top: drag.target * ROW - 1 }}
@@ -205,7 +302,7 @@ export function BookmarkList(props: Props) {
           className="pointer-events-none fixed z-50 max-w-64 truncate rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-lg"
           style={{ left: drag.x + 14, top: drag.y + 10 }}
         >
-          {drag.label}
+          {drag.collection ? `Add ${drag.ids.length > 1 ? `${drag.label} ` : ""}to “${drag.collection.name}”` : drag.label}
         </div>
       )}
     </div>
@@ -214,9 +311,8 @@ export function BookmarkList(props: Props) {
 
 interface RowHandlers {
   down: (e: React.PointerEvent, id: string) => void;
-  move: (e: React.PointerEvent) => void;
-  up: () => void;
-  cancel: () => void;
+  rowDown: (e: React.PointerEvent, id: string) => void;
+  clickGuard: (e: React.MouseEvent) => void;
   select: (id: string, index: number, range: boolean) => void;
   moveTo: (id: string, index: number) => void;
   rename: (id: string, title: string) => void;
@@ -268,21 +364,23 @@ const Row = memo(function Row({
       role="listitem"
       data-id={bookmark.id}
       onClick={(e) => h.select(bookmark.id, index, e.shiftKey)}
-      className={`absolute inset-x-0 flex items-center gap-2 border-b border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${
+      onClickCapture={h.clickGuard}
+      onPointerDown={(e) => h.rowDown(e, bookmark.id)}
+      className={`absolute inset-x-0 flex items-center gap-2 border-b select-none border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${
         isSelected ? "bg-accent-soft dark:bg-accent/15" : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
       } ${previewing ? "shadow-[inset_3px_0_0_var(--color-accent)]" : ""} ${dimmed ? "opacity-40" : ""}`}
       style={{ top: index * ROW, height: ROW }}
     >
       <button
         type="button"
-        aria-label={canDrag ? `Drag to reorder ${name}` : "Reordering works in Custom order without a search"}
-        title={canDrag ? "Drag to reorder (or focus and use ↑ ↓)" : "Switch to Custom order and clear the search to reorder"}
-        disabled={!canDrag}
+        aria-label={canDrag ? `Drag to reorder ${name}` : `Drag ${name} onto a collection`}
+        title={
+          canDrag
+            ? "Drag to reorder, or onto a collection in the sidebar to add it (↑ ↓ also move it)"
+            : "Drag onto a collection in the sidebar to add it. To reorder, switch to Custom order and clear the search."
+        }
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => h.down(e, bookmark.id)}
-        onPointerMove={h.move}
-        onPointerUp={h.up}
-        onPointerCancel={h.cancel}
         onKeyDown={(e) => {
           if (!canDrag) return;
           const to = e.key === "ArrowUp" ? index - 1 : e.key === "ArrowDown" ? index + 1 : -1;
@@ -294,7 +392,7 @@ const Row = memo(function Row({
             target?.querySelector<HTMLElement>(`[data-id="${bookmark.id}"] button`)?.focus(),
           );
         }}
-        className="flex h-full w-7 shrink-0 touch-none items-center justify-center text-neutral-400 hover:text-neutral-700 disabled:cursor-default disabled:opacity-25 dark:hover:text-neutral-200"
+        className="flex h-full w-7 shrink-0 touch-none items-center justify-center text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
       >
         <GripVertical className="size-4" />
       </button>

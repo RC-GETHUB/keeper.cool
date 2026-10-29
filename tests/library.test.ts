@@ -10,6 +10,9 @@ import {
   moveCollection,
   moveItems,
   orderCollections,
+  canRestoreInstagramOrder,
+  restoreCollectionOrder,
+  restoreInstagramOrder,
   removeBookmarks,
   removeFromCollection,
   renameBookmark,
@@ -222,6 +225,8 @@ describe("collection order", () => {
     expect(names(sortCollections(lib.collections, "newest"))).toEqual(["travel", "Books 9", "Books 10", "Art", "recipes"]);
     expect(names(sortCollections(lib.collections, "oldest"))).toEqual(["Art", "Books 10", "Books 9", "travel", "recipes"]);
     expect(names(sortCollections(lib.collections, "custom", "books"))).toEqual(["Books 10", "Books 9"]);
+    const touched = { ...lib, collections: lib.collections.map((c, i) => ({ ...c, updatedAt: i === 3 ? 999 : i })) };
+    expect(names(sortCollections(touched.collections, "recent"))).toEqual(["Books 10", "Books 9", "recipes", "Art", "travel"]);
   });
 
   it("drags and keeps a sorted order", () => {
@@ -233,5 +238,40 @@ describe("collection order", () => {
     // A filtered view only reorders what it shows.
     lib = orderCollections(lib, sortCollections(lib.collections, "za", "books").map((c) => c.id));
     expect(names(lib.collections)).toEqual(["Art", "Books 10", "Books 9", "recipes", "travel"]);
+  });
+});
+
+describe("restore Instagram's order", () => {
+  it("puts posts, a collection and the collection list back as imported", () => {
+    let lib = mergeImport(
+      emptyLibrary(),
+      result(["a", "b", "c", "d"].map((id) => bm(id)), [
+        { name: "One", items: ["c", "a"] },
+        { name: "Two", items: ["d"] },
+      ]),
+    ).library;
+    const [one, two] = lib.collections.map((c) => c.id);
+    lib = applyOrder(lib, null, ["d", "c", "b", "a"]);
+    lib = moveItems(lib, one, ["a"], 0);
+    lib = createCollection(lib, "Mine").library;
+    lib = orderCollections(lib, [lib.collections[2].id, two, one]);
+
+    expect(canRestoreInstagramOrder(lib, null)).toBe(true);
+    expect(restoreInstagramOrder(lib, null).order).toEqual(["a", "b", "c", "d"]);
+    expect(restoreInstagramOrder(lib, one).collections.find((c) => c.id === one)!.items).toEqual(["c", "a"]);
+    expect(restoreCollectionOrder(lib).collections.map((c) => c.name)).toEqual(["One", "Two", "Mine"]);
+    expect(canRestoreInstagramOrder(lib, lib.collections[0].id)).toBe(false);
+  });
+
+  it("keeps posts added since the import on top", () => {
+    let lib = mergeImport(emptyLibrary(), result(["a", "b"].map((id) => bm(id)))).library;
+    lib = { ...lib, bookmarks: { ...lib.bookmarks, z: bm("z") }, order: ["b", "z", "a"] };
+    expect(restoreInstagramOrder(lib, null).order).toEqual(["z", "a", "b"]);
+  });
+
+  it("falls back to newest saved for libraries imported before Keeper kept the order", () => {
+    let lib = mergeImport(emptyLibrary(), result([bm("a", { savedAt: 3 }), bm("b", { savedAt: 2 }), bm("c", { savedAt: 1 })])).library;
+    lib = { ...applyOrder(lib, null, ["c", "a", "b"]), instagramOrder: undefined };
+    expect(restoreInstagramOrder(lib, null).order).toEqual(["a", "b", "c"]);
   });
 });

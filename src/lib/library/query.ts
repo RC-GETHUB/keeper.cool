@@ -172,7 +172,7 @@ export function countLibrary(lib: Library): Counts {
   return { total: lib.order.length, unfiled: lib.order.length - filed.size, collections };
 }
 
-export type CollectionSort = "custom" | "az" | "za" | "newest" | "oldest" | "size";
+export type CollectionSort = "custom" | "az" | "za" | "recent" | "newest" | "oldest" | "size";
 
 /** Collections to show in the sidebar: filtered by name, in the chosen order. */
 export function sortCollections(collections: Collection[], sort: CollectionSort, filter = ""): Collection[] {
@@ -182,14 +182,18 @@ export function sortCollections(collections: Collection[], sort: CollectionSort,
   list = [...list];
   const byName = (a: Collection, b: Collection) => collator.compare(a.name, b.name);
   // Collections with no date (made before dates were known) go last either way.
-  const byDate = (dir: number) => (a: Collection, b: Collection) =>
-    a.createdAt === undefined || b.createdAt === undefined
-      ? (a.createdAt === undefined ? 1 : 0) - (b.createdAt === undefined ? 1 : 0)
-      : dir * (a.createdAt - b.createdAt);
+  const byDate = (dir: number, date: (c: Collection) => number | undefined) => (a: Collection, b: Collection) => {
+    const x = date(a);
+    const y = date(b);
+    if (x === undefined || y === undefined) return (x === undefined ? 1 : 0) - (y === undefined ? 1 : 0);
+    return dir * (x - y) || byName(a, b);
+  };
+  const created = (c: Collection) => c.createdAt;
   if (sort === "az") list.sort(byName);
   if (sort === "za") list.sort((a, b) => byName(b, a));
-  if (sort === "newest") list.sort(byDate(-1));
-  if (sort === "oldest") list.sort(byDate(1));
+  if (sort === "recent") list.sort(byDate(-1, (c) => c.updatedAt ?? c.createdAt));
+  if (sort === "newest") list.sort(byDate(-1, created));
+  if (sort === "oldest") list.sort(byDate(1, created));
   if (sort === "size") list.sort((a, b) => b.items.length - a.items.length || byName(a, b));
   return list;
 }
