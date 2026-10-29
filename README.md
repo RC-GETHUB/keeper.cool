@@ -26,6 +26,10 @@ Instagram.
   posts that look like the same content (same caption or same image).
 - Multi-select (shift-click for ranges), move to top/bottom, undo (⌘/Ctrl Z),
   backup download.
+- **One library per Instagram account**, with a switcher in the header.
+  Imports go to the right account's library (from the extension's login, or
+  the export file's name), and selected bookmarks can be copied to another
+  account's library; its next Sync saves them there.
 - Works on phones and desktop. The library is kept in the browser
   (IndexedDB), so nothing leaves the device yet.
 

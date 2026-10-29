@@ -8,6 +8,7 @@ import {
   Loader2,
   Menu,
   Pause,
+  Copy,
   Puzzle,
   Search,
   Send,
@@ -21,6 +22,7 @@ import { findDuplicates } from "@/lib/library/duplicates";
 import {
   addToCollection,
   applyThumbnails,
+  copyBookmarks,
   applyOrder,
   createCollection,
   deleteCollection,
@@ -41,9 +43,12 @@ import {
 import { countLibrary, viewIds, type CollectionSort, type Scope, type SortMode } from "@/lib/library/query";
 import { readNewSaves, useExtension, type ExtensionState } from "@/lib/extension";
 import { mergeNewSaves } from "@/lib/instagram-read";
-import { clearLibrary, loadLibrary, saveLibrary } from "@/lib/storage";
+import { describe, entryLabel, newLibraryId, routeImport, type LibraryIndex } from "@/lib/libraries";
+import { deleteLibrary, loadLibrary, openLibraries, saveIndex, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
 import type { ImportResult, Library } from "@/lib/types";
+import type { MergeSummary } from "@/lib/library/ops";
+import { AccountMenu } from "./AccountMenu";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
 import { PreviewPanel } from "./PreviewPanel";
@@ -94,30 +99,76 @@ export function App() {
   const [toast, setToast] = useState<{ message: string; undo: boolean } | null>(null);
   const [saveError, setSaveError] = useState(false);
   const [confirming, setConfirming] = useState<Confirmation | null>(null);
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const [copyMenu, setCopyMenu] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Load once, then save (debounced) after every change.
+  // One library per Instagram account. Load the open one, then save it
+  // (debounced) after every change, keeping the index's summary current.
+  const [index, setIndex] = useState<LibraryIndex | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const skipSave = useRef(true);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cover images by post, so ones that arrive while switching libraries still land.
+  const thumbs = useRef(new Map<string, string>());
+
   useEffect(() => {
-    loadLibrary()
-      .then((stored) => setLib(stored ?? emptyLibrary()))
-      .catch(() => setLib(emptyLibrary()));
+    openLibraries()
+      .then(({ index: loadedIndex, lib: loadedLib }) => {
+        setIndex(loadedIndex);
+        setLib(loadedLib);
+      })
+      .catch(() => {
+        const id = newLibraryId();
+        const fresh = emptyLibrary();
+        setIndex({ version: 1, active: id, entries: [describe(id, fresh, Date.now())] });
+        setLib(fresh);
+      });
   }, []);
-  const loaded = useRef<Library | null>(null);
+
+  const persist = useCallback(async (id: string, l: Library) => {
+    try {
+      await saveLibrary(id, l);
+      setSaveError(false);
+      const current = indexRef.current;
+      const entry = current?.entries.find((e) => e.id === id);
+      if (!current || !entry) return;
+      const next = describe(id, l, entry.createdAt);
+      if (next.count !== entry.count || next.username !== entry.username || next.userId !== entry.userId) {
+        const updated = { ...current, entries: current.entries.map((e) => (e.id === id ? next : e)) };
+        indexRef.current = updated;
+        setIndex(updated);
+        await saveIndex(updated);
+      }
+    } catch {
+      setSaveError(true);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!lib) return;
-    if (!loaded.current) {
-      loaded.current = lib;
+    if (!lib || !index) return;
+    if (skipSave.current) {
+      skipSave.current = false;
       return;
     }
-    const timer = setTimeout(() => {
-      saveLibrary(lib).then(
-        () => setSaveError(false),
-        () => setSaveError(true),
-      );
+    const id = index.active;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      persist(id, lib);
     }, 400);
-    return () => clearTimeout(timer);
-  }, [lib]);
+  }, [lib]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Saves the open library now (before switching away from it). */
+  const flush = async () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (lib && index) await persist(index.active, lib);
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -130,13 +181,17 @@ export function App() {
   const libRef = useRef(lib);
   libRef.current = lib;
   const refreshed = useRef(false);
+  const rememberThumbs = (items: { code: string; data: string }[]) => {
+    for (const { code, data } of items) thumbs.current.set(code, data);
+    setLib((prev) => prev && applyThumbnails(prev, items));
+  };
   useEffect(() => {
     const current = libRef.current;
     if (refreshed.current || !current?.instagram || current.order.length === 0 || extension.status !== "ready") return;
     if (extension.job && (extension.job.status === "running" || extension.job.status === "waiting")) return;
     refreshed.current = true;
     const known = (current.instagramOrder?.length ? current.instagramOrder : current.order).slice(0, 60);
-    readNewSaves(known, (items) => setLib((prev) => prev && applyThumbnails(prev, items))).then(
+    readNewSaves(known, rememberThumbs).then(
       (read) => {
         const latest = libRef.current;
         if (!latest || read.account.userId !== latest.instagram?.userId) return;
@@ -209,7 +264,16 @@ export function App() {
     return map;
   }, [lib?.collections]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!lib) {
+  // The open library's entry, kept live (the stored index catches up on save).
+  const accounts = useMemo(
+    () =>
+      index && lib
+        ? { ...index, entries: index.entries.map((e) => (e.id === index.active ? describe(e.id, lib, e.createdAt) : e)) }
+        : index,
+    [index, lib],
+  );
+
+  if (!lib || !index) {
     return (
       <div className="flex h-dvh items-center justify-center">
         <Loader2 className="size-6 animate-spin text-neutral-400" />
@@ -268,10 +332,104 @@ export function App() {
     anchor.current = index;
   };
 
-  const importResult = (result: ImportResult) => {
-    const { library, summary } = mergeImport(lib, result);
-    commit(library);
+  /** Opens another account's library. Returns it, so callers can keep working with it. */
+  const switchLibrary = async (id: string, message?: string): Promise<Library> => {
+    await flush();
+    const loadedLib = (await loadLibrary(id)) ?? emptyLibrary();
+    const withThumbs = applyThumbnails(loadedLib, [...thumbs.current].map(([code, data]) => ({ code, data })));
+    const nextIndex = { ...indexRef.current!, active: id };
+    indexRef.current = nextIndex;
+    setIndex(nextIndex);
+    saveIndex(nextIndex).catch(() => undefined);
+    skipSave.current = withThumbs === loadedLib;
+    setLib(withThumbs);
+    setHistory([]);
+    setScope({ type: "all" });
+    setArranged("custom");
+    setSelected(new Set());
+    setPreviewId(null);
+    setQuery("");
+    refreshed.current = false;
+    const entry = nextIndex.entries.find((e) => e.id === id);
+    setToast({ message: message ?? `Switched to ${entry ? entryLabel(entry) : "that account"}`, undo: false });
+    return withThumbs;
+  };
+
+  /** Adds an empty library for another Instagram account and opens it. */
+  const addLibrary = async (): Promise<Library> => {
+    await flush();
+    const id = newLibraryId();
+    const fresh = emptyLibrary();
+    await saveLibrary(id, fresh);
+    const nextIndex = { ...indexRef.current!, entries: [...indexRef.current!.entries, describe(id, fresh, Date.now())] };
+    indexRef.current = nextIndex;
+    setIndex(nextIndex);
+    return switchLibrary(id, "Added a new account. Import its saves to fill it.");
+  };
+
+  const removeLibrary = (id: string) => {
+    const entry = index.entries.find((e) => e.id === id);
+    if (!entry || id === index.active) return;
+    setConfirming({
+      title: `Delete ${entryLabel(entry)}'s library?`,
+      message: `This removes its ${plural(entry.count, "bookmark")}, names and collections from Keeper on this device. The Instagram account isn't touched.`,
+      action: "Delete library",
+      run: async () => {
+        await deleteLibrary(id).catch(() => undefined);
+        const nextIndex = { ...indexRef.current!, entries: indexRef.current!.entries.filter((e) => e.id !== id) };
+        indexRef.current = nextIndex;
+        setIndex(nextIndex);
+        await saveIndex(nextIndex).catch(() => undefined);
+        setToast({ message: `Deleted ${entryLabel(entry)}'s library`, undo: false });
+      },
+    });
+  };
+
+  /** Asks where an import from another account should go. */
+  const askWhere = (username: string) =>
+    new Promise<"new" | "here">((resolve) =>
+      setChoice({
+        title: `These are @${username}'s saves`,
+        message: `The open library (${entryLabel(index.entries.find((e) => e.id === index.active)!)}) already has other saves. Keeper keeps each Instagram account in its own library.`,
+        primary: { label: `New library for @${username}`, run: () => resolve("new") },
+        secondary: { label: "Add to the open library", run: () => resolve("here") },
+      }),
+    );
+
+  /** Brings an import into the right account's library, switching or creating one when it's another account's. */
+  const importResult = async (result: ImportResult): Promise<MergeSummary> => {
+    const incoming = { userId: result.account?.userId, username: result.account?.username ?? result.sourceUsername };
+    const route = routeImport(index, lib, incoming, result.bookmarks.map((b) => b.id));
+    let target = lib;
+    let elsewhere = false;
+    if (route.kind === "switch") {
+      target = await switchLibrary(route.id);
+      elsewhere = true;
+    } else if (route.kind === "ask" && (await askWhere(incoming.username ?? "another account")) === "new") {
+      target = await addLibrary();
+      elsewhere = true;
+    }
+    const { library, summary } = mergeImport(target, result);
+    if (elsewhere) setLib(library);
+    else commit(library);
     return summary;
+  };
+
+  /** Copies bookmarks into another account's library, to be saved there by its next Sync. */
+  const copyTo = async (id: string, ids: string[]) => {
+    await flush();
+    const target = (await loadLibrary(id)) ?? emptyLibrary();
+    const collectionName = scope.type === "collection" ? lib.collections.find((c) => c.id === scope.id)?.name : undefined;
+    const { library, copied } = copyBookmarks(target, lib, ids, collectionName);
+    await persist(id, library);
+    const entry = index.entries.find((e) => e.id === id);
+    const label = entry ? entryLabel(entry) : "that account";
+    setToast({
+      message: copied
+        ? `Copied ${plural(copied, "bookmark")} to ${label}${collectionName ? ` (in “${collectionName}”)` : ""}. Open ${label} and Sync to save them on Instagram.`
+        : `${label} already has ${ids.length === 1 ? "it" : "them"}.`,
+      undo: false,
+    });
   };
 
   const loadSample = (size: number) => {
@@ -289,18 +447,14 @@ export function App() {
 
   const reset = () =>
     setConfirming({
-      title: "Delete your library?",
-      message: "This removes every bookmark, name and collection from Keeper on this device. Your Instagram account isn't touched.",
-      action: "Delete library",
-      run: () =>
-        clearLibrary()
-          .catch(() => undefined)
-          .finally(() => {
-            loaded.current = null;
-            setHistory([]);
-            setLib(emptyLibrary());
-            changeScope({ type: "all" });
-          }),
+      title: "Empty this library?",
+      message: "This removes every bookmark, name and collection in this account's library from Keeper on this device. Your Instagram account isn't touched.",
+      action: "Empty library",
+      run: () => {
+        setHistory([]);
+        setLib(emptyLibrary());
+        changeScope({ type: "all" });
+      },
     });
 
   const arrange = (mode: Arrangement) => {
@@ -336,12 +490,8 @@ export function App() {
           <span className="text-lg font-bold tracking-tight">
             keeper<span className="text-accent">.cool</span>
           </span>
-          {!empty && (
-            <span className="hidden text-xs text-neutral-500 sm:inline" data-testid="total-count">
-              {plural(counts.total, "bookmark")}
-            </span>
-          )}
         </div>
+        <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={() => addLibrary()} onRemove={removeLibrary} />
         <label className="relative ml-auto flex max-w-md min-w-0 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2.5 size-4 text-neutral-400" />
           <input
@@ -488,6 +638,32 @@ export function App() {
                       >
                         <FolderMinus className="size-4" /> <span className="hidden sm:inline">Remove from collection</span>
                       </button>
+                    )}
+                    {index.entries.length > 1 && (
+                      <div className="relative">
+                        <button type="button" className={ghostButton} onClick={() => setCopyMenu(true)} title="Copy to another Instagram account">
+                          <Copy className="size-4" /> <span className="hidden sm:inline">Copy to…</span>
+                        </button>
+                        <Popover open={copyMenu} onClose={() => setCopyMenu(false)}>
+                          <p className="px-2.5 pt-1.5 pb-1 text-xs text-neutral-500">Copy to another account&apos;s library</p>
+                          {accounts!.entries
+                            .filter((e) => e.id !== index.active)
+                            .map((e) => (
+                              <button
+                                key={e.id}
+                                type="button"
+                                className={menuItem}
+                                onClick={() => {
+                                  setCopyMenu(false);
+                                  copyTo(e.id, selection);
+                                }}
+                              >
+                                {entryLabel(e)}
+                                <span className="ml-auto text-xs text-neutral-500">{fmtCount.format(e.count)}</span>
+                              </button>
+                            ))}
+                        </Popover>
+                      </div>
                     )}
                     {ordered && (
                       <>
@@ -637,11 +813,12 @@ export function App() {
             setAutoImport(false);
           }}
           onImport={importResult}
-          onThumbs={(items) => setLib((prev) => prev && applyThumbnails(prev, items))}
+          onThumbs={rememberThumbs}
         />
       )}
       {pushOpen && <PushDialog lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}
       {confirming && <ConfirmDialog {...confirming} onClose={() => setConfirming(null)} />}
+      {choice && <ChoiceDialog {...choice} onClose={() => setChoice(null)} />}
 
       {(toast || saveError) && (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
@@ -698,6 +875,49 @@ function ConfirmDialog({ title, message, action, run, onClose }: Confirmation & 
             }}
           >
             {action}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface Choice {
+  title: string;
+  message: string;
+  primary: { label: string; run: () => void };
+  secondary: { label: string; run: () => void };
+}
+
+function ChoiceDialog({ title, message, primary, secondary, onClose }: Choice & { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="choice-title" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900">
+        <h2 id="choice-title" className="font-semibold">
+          {title}
+        </h2>
+        <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">{message}</p>
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            type="button"
+            className={`${primaryButton} justify-center py-2`}
+            onClick={() => {
+              primary.run();
+              onClose();
+            }}
+            autoFocus
+          >
+            {primary.label}
+          </button>
+          <button
+            type="button"
+            className={`${ghostButton} justify-center`}
+            onClick={() => {
+              secondary.run();
+              onClose();
+            }}
+          >
+            {secondary.label}
           </button>
         </div>
       </div>

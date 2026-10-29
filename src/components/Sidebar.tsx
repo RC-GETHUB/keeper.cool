@@ -344,7 +344,7 @@ export function Sidebar({
           <Download className="size-3.5" /> Download a backup
         </button>
         <button type="button" onClick={onReset} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10">
-          <Trash2 className="size-3.5" /> Delete my library
+          <Trash2 className="size-3.5" /> Empty this library
         </button>
         <div className="flex gap-3 px-2.5 pt-1 text-[11px] text-neutral-500">
           <a href="/extension" className="hover:underline">

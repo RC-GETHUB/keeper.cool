@@ -35,6 +35,10 @@ export interface PushPlan {
 export interface PlanOptions {
   /** Save posts this account hasn't saved yet, instead of skipping them. Used when copying a library to another account. */
   saveMissing?: boolean;
+  /** Posts to save even though this account hasn't saved them (copied in from another account's library). */
+  saveCodes?: Set<string>;
+  /** Media ids Keeper already knows, by shortcode; used before working one out from the shortcode. */
+  mediaIds?: Map<string, string>;
 }
 
 /**
@@ -47,7 +51,7 @@ export function planPush(target: string[], current: InstagramMedia[], options: P
   const notSaved: string[] = [];
   const order: string[] = [];
   for (const code of new Set(target)) {
-    if (position.has(code) || options.saveMissing) order.push(code);
+    if (position.has(code) || options.saveMissing || options.saveCodes?.has(code)) order.push(code);
     else notSaved.push(code);
   }
 
@@ -68,7 +72,7 @@ export function planPush(target: string[], current: InstagramMedia[], options: P
     const existing = media.get(code);
     steps.push({
       code,
-      mediaId: existing?.pk ?? codeToPk(code),
+      mediaId: existing?.pk ?? options.mediaIds?.get(code) ?? codeToPk(code),
       action: existing ? "resave" : "save",
       collections: existing?.collectionIds ?? [],
     });

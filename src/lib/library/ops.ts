@@ -42,8 +42,10 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
       fresh.push(incoming.id);
       continue;
     }
+    // Seen on Instagram now, so a copy waiting to be saved there has been.
+    const { toSave: _, ...rest } = existing;
     const merged: Bookmark = {
-      ...existing,
+      ...rest,
       kind: existing.kind === "post" ? incoming.kind : existing.kind,
       author: existing.author ?? incoming.author,
       caption: incoming.caption ?? existing.caption,
@@ -51,7 +53,7 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
       mediaId: existing.mediaId ?? incoming.mediaId,
       savedAt: existing.savedAt ?? incoming.savedAt,
     };
-    if (Object.keys(merged).some((k) => merged[k as keyof Bookmark] !== existing[k as keyof Bookmark])) {
+    if (existing.toSave || Object.keys(merged).some((k) => merged[k as keyof Bookmark] !== existing[k as keyof Bookmark])) {
       bookmarks[incoming.id] = merged;
       updated++;
     }
@@ -101,10 +103,46 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
   };
   if (result.collections.length) patch.instagramCollectionOrder = collectionOrder;
   if (result.account) patch.instagram = result.account;
+  if (result.sourceUsername && !lib.instagram && !lib.exportUsername) patch.exportUsername = result.sourceUsername;
   return {
     library: touch(lib, patch),
     summary: { added: fresh.length, updated, collectionsAdded },
   };
+}
+
+/**
+ * Copies bookmarks from another account's library into `target`, on top,
+ * marked New and waiting to be saved on this account (Sync saves them).
+ * With `collectionName`, they're also filed into the collection of that
+ * name, which is created if needed.
+ */
+export function copyBookmarks(
+  target: Library,
+  source: Library,
+  ids: string[],
+  collectionName?: string,
+): { library: Library; copied: number } {
+  const bookmarks = { ...target.bookmarks };
+  const added: string[] = [];
+  for (const id of unique(ids)) {
+    const b = source.bookmarks[id];
+    if (!b || bookmarks[id]) continue;
+    const { isNew: _n, toSave: _s, ...rest } = b;
+    bookmarks[id] = { ...rest, isNew: true, toSave: true };
+    added.push(id);
+  }
+  let library = added.length ? touch(target, { bookmarks, order: [...added, ...target.order] }) : target;
+  if (collectionName) {
+    let collectionId = library.collections.find((c) => c.name.toLowerCase() === collectionName.toLowerCase())?.id;
+    if (!collectionId) {
+      const created = createCollection(library, collectionName);
+      library = created.library;
+      collectionId = created.id;
+    }
+    const inLibrary = library.bookmarks;
+    library = addToCollection(library, collectionId, ids.filter((x) => inLibrary[x]));
+  }
+  return { library, copied: added.length };
 }
 
 /** Clears the "New" flags from bookmarks and collections (all of them, or just `ids`). */

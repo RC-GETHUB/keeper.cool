@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, Send, 
 import { useState } from "react";
 import { controlPush, ExtensionError, readInstagram, startPush, type ExtensionState, type JobSummary, type ReadProgress } from "@/lib/extension";
 import { fromInstagramRead, type InstagramRead } from "@/lib/instagram-read";
+import { identityOf, sameIdentity } from "@/lib/libraries";
 import { mergeImport } from "@/lib/library/ops";
 import { estimateDuration, formatDuration, planPush, type PushPlan } from "@/lib/push";
 import type { Library } from "@/lib/types";
@@ -45,15 +46,20 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
       const read = await readInstagram((p) => setStage({ stage: "checking", progress: p }), { thumbnails: false });
       const onInstagram = new Set(read.saved.map((m) => m.code));
       const overlap = lib.order.length ? lib.order.filter((id) => onInstagram.has(id)).length / lib.order.length : 0;
-      const same = lib.instagram ? lib.instagram.userId === read.account.userId : overlap >= 0.5;
+      const identity = identityOf(lib);
+      const same = identity.userId || identity.username ? sameIdentity(identity, read.account) : overlap >= 0.5;
       if (same) {
         // Bring in anything saved on Instagram since the last import, so the
         // plan covers everything that's there now.
         const merged = mergeImport(lib, fromInstagramRead(read)).library;
         onMerge(merged);
-        setStage({ stage: "plan", read, plan: planPush(merged.order, read.saved), copy: false });
+        // Posts copied in from another account's library get saved here too.
+        const saveCodes = new Set(merged.order.filter((id) => merged.bookmarks[id]?.toSave));
+        const mediaIds = new Map(merged.order.flatMap((id) => (merged.bookmarks[id]?.mediaId ? [[id, merged.bookmarks[id].mediaId!]] : [])));
+        setStage({ stage: "plan", read, plan: planPush(merged.order, read.saved, { saveCodes, mediaIds }), copy: false });
       } else {
-        setStage({ stage: "plan", read, plan: planPush(lib.order, read.saved, { saveMissing: true }), copy: true });
+        const mediaIds = new Map(lib.order.flatMap((id) => (lib.bookmarks[id]?.mediaId ? [[id, lib.bookmarks[id].mediaId!]] : [])));
+        setStage({ stage: "plan", read, plan: planPush(lib.order, read.saved, { saveMissing: true, mediaIds }), copy: true });
       }
     } catch (e) {
       setStage({ stage: "error", message: e instanceof ExtensionError || e instanceof Error ? e.message : "Couldn't read from Instagram." });
@@ -189,11 +195,14 @@ function PlanView({
         <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
           <p className="flex items-start gap-2 font-medium">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            {lib.instagram
-              ? `This library came from ${handle(lib.instagram)}, but Instagram is logged into ${handle(read.account)}.`
+            {lib.instagram || lib.exportUsername
+              ? `This is ${lib.instagram ? handle(lib.instagram) : `@${lib.exportUsername}`}'s library, but Instagram is logged into ${handle(read.account)}.`
               : `Most of this library isn't saved on ${handle(read.account)}.`}
           </p>
-          <p>Keeper will save your library into {handle(read.account)} in your order. Posts from private accounts it can&apos;t see are skipped.</p>
+          <p>
+            To sync this library, switch Instagram to its account first. Or carry on and Keeper will save this whole library into{" "}
+            {handle(read.account)} in your order (posts from private accounts it can&apos;t see are skipped).
+          </p>
           <label className="flex items-start gap-2">
             <input type="checkbox" checked={copyConsent} onChange={(e) => onCopyConsent(e.target.checked)} className="mt-0.5 size-4 accent-accent" />
             <span>Yes, save my library into {handle(read.account)}.</span>
@@ -209,7 +218,7 @@ function PlanView({
         <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
           <p className="text-2xl font-semibold tabular-nums">{fmtCount.format(plan.steps.length)}</p>
           <p className="text-neutral-600 dark:text-neutral-400">
-            {copy && saves ? `posts to save (${fmtCount.format(saves)} new to this account)` : "posts will move on Instagram"}
+            {saves ? `posts to save or move (${fmtCount.format(saves)} new to this account)` : "posts will move on Instagram"}
             {plan.unchanged > 0 && `, ${fmtCount.format(plan.unchanged)} already in place`}
           </p>
           <p className="mt-2">

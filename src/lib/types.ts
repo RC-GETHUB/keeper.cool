@@ -17,6 +17,8 @@ export interface Bookmark {
   title?: string;
   /** Came in with an import after the first one, and not yet marked as seen. */
   isNew?: true;
+  /** Copied from another account's library and not yet saved on this account: Sync saves it. */
+  toSave?: true;
 }
 
 export interface Collection {
@@ -45,6 +47,8 @@ export interface Library {
   collections: Collection[];
   /** The Instagram account the extension last imported from. */
   instagram?: InstagramAccount;
+  /** The account named in an imported export file's name, when the extension hasn't said. */
+  exportUsername?: string;
   /** Saved posts in Instagram's order at the last import, for "Restore Instagram's order". */
   instagramOrder?: string[];
   /** Collection ids in Instagram's order at the last import. */
@@ -79,4 +83,6 @@ export interface ImportResult {
   account?: InstagramAccount;
   /** Only new saves, not the whole list: Instagram's full order is unknown. */
   partial?: boolean;
+  /** The account an export file came from, read from its file name. */
+  sourceUsername?: string;
 }

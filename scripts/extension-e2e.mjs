@@ -21,6 +21,7 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const EXTENSION = join(ROOT, "extension");
 const KEEPER = "http://localhost:3000";
 const USER_ID = "4242";
+const OTHER_ID = "5151";
 
 // ---------------------------------------------------------------- Fake Instagram
 
@@ -39,12 +40,25 @@ const posts = Array.from({ length: 45 }, (_, i) => ({
   caption: `Post number ${i} with a caption long enough to show two lines in the list ${i % 2 ? "tacos" : "sunset"}`,
   reel: i % 4 === 0,
 }));
+const mainPosts = [...posts];
+
+// A second Instagram account with its own saves.
+const otherPosts = Array.from({ length: 5 }, (_, i) => ({
+  code: `OTHER${i}xxxxx`.slice(0, 11),
+  pk: (3456789012345679000n + BigInt(i)).toString(),
+  author: "jo_travels",
+  caption: `Second account post ${i}`,
+  reel: false,
+}));
+posts.push(...otherPosts);
 const byPk = new Map(posts.map((p) => [p.pk, p]));
+const second = { username: "second.account", saved: otherPosts.map((p) => p.code), collections: new Map() };
 const ig = {
-  saved: posts.map((p) => p.code), // newest first
+  username: "test.account",
+  saved: mainPosts.map((p) => p.code), // newest first
   collections: new Map([
-    ["17900000000000001", { name: "Recipes", items: posts.filter((_, i) => i % 3 === 0).map((p) => p.code) }],
-    ["17900000000000002", { name: "Travel", items: posts.filter((_, i) => i % 5 === 0).map((p) => p.code) }],
+    ["17900000000000001", { name: "Recipes", items: mainPosts.filter((_, i) => i % 3 === 0).map((p) => p.code) }],
+    ["17900000000000002", { name: "Travel", items: mainPosts.filter((_, i) => i % 5 === 0).map((p) => p.code) }],
   ]),
   calls: [],
 };
@@ -79,28 +93,32 @@ async function mockInstagram(context) {
     if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Fake Instagram</body></html>" });
     if (request.method() === "POST" && request.headers()["x-csrftoken"] !== "csrf-test") return route.fulfill({ status: 403, body: "CSRF" });
     ig.calls.push(`${request.method()} ${path}`);
+    // Whoever is logged in (by cookie) gets their own saves.
+    const uid = /ds_user_id=(\d+)/.exec((await request.allHeaders()).cookie ?? "")?.[1];
+    const acct = uid === OTHER_ID ? second : ig;
 
-    if (path === `/api/v1/users/${USER_ID}/info/`) return json(`{"user":{"username":"test.account"},"status":"ok"}`);
-    if (path === "/api/v1/feed/saved/posts/") return json(page(ig.saved, url.searchParams.get("max_id"), 20));
+    const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
+    if (info) return json(`{"user":{"username":"${info[1] === OTHER_ID ? second.username : ig.username}"},"status":"ok"}`);
+    if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
     if (path === "/api/v1/collections/list/") {
-      const items = [...ig.collections].map(([id, c]) => `{"collection_id":${id},"collection_name":"${c.name}","collection_type":"MEDIA"}`);
+      const items = [...acct.collections].map(([id, c]) => `{"collection_id":${id},"collection_name":"${c.name}","collection_type":"MEDIA"}`);
       return json(`{"items":[${items.join(",")}],"more_available":false,"next_max_id":null,"status":"ok"}`);
     }
     let m = path.match(/^\/api\/v1\/feed\/collection\/(\d+)\/posts\/$/);
-    if (m) return json(page(ig.collections.get(m[1]).items, url.searchParams.get("max_id"), 20));
+    if (m) return json(page(acct.collections.get(m[1]).items, url.searchParams.get("max_id"), 20));
     m = path.match(/^\/api\/v1\/web\/save\/(\d+)\/(save|unsave)\/$/);
     if (m) {
       const p = byPk.get(m[1]);
       if (!p) return route.fulfill({ status: 404, contentType: "application/json", body: '{"message":"Media not found","status":"fail"}' });
-      ig.saved = ig.saved.filter((c) => c !== p.code);
-      if (m[2] === "save") ig.saved.unshift(p.code);
-      else for (const c of ig.collections.values()) c.items = c.items.filter((x) => x !== p.code);
+      acct.saved = acct.saved.filter((c) => c !== p.code);
+      if (m[2] === "save") acct.saved.unshift(p.code);
+      else for (const c of acct.collections.values()) c.items = c.items.filter((x) => x !== p.code);
       return json('{"status":"ok"}');
     }
     m = path.match(/^\/api\/v1\/collections\/(\d+)\/edit\/$/);
     if (m) {
       const added = JSON.parse(new URLSearchParams(request.postData()).get("added_media_ids"));
-      const c = ig.collections.get(m[1]);
+      const c = acct.collections.get(m[1]);
       for (const pk of added) {
         const p = byPk.get(pk);
         c.items = [p.code, ...c.items.filter((x) => x !== p.code)];
@@ -135,9 +153,9 @@ async function run() {
       viewport: { width: 1280, height: 900 },
     });
     // Start logged out of Instagram; the test logs in through Keeper's pop-up.
-    const logIn = () =>
+    const logIn = (userId = USER_ID) =>
       context.addCookies([
-        { name: "ds_user_id", value: USER_ID, domain: ".instagram.com", path: "/", secure: true },
+        { name: "ds_user_id", value: userId, domain: ".instagram.com", path: "/", secure: true },
         { name: "csrftoken", value: "csrf-test", domain: ".instagram.com", path: "/", secure: true },
       ]);
     await mockInstagram(context);
@@ -159,7 +177,12 @@ async function run() {
     const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
     check(popup.url().startsWith("https://www.instagram.com/accounts/login"), "opens Instagram's own login page in a pop-up");
     await logIn();
-    await page.getByText(/Added 45 bookmarks/).waitFor({ timeout: 60_000 });
+    await page.getByText(/Added 45 bookmarks/).waitFor({ timeout: 60_000 }).catch(async (e) => {
+      console.log("DIALOG:", await page.getByRole("dialog").innerText().catch(() => "none"));
+      console.log("ERRORS:", errors);
+      console.log("CALLS:", ig.calls.slice(-5));
+      throw e;
+    });
     check(true, "45 saved posts imported");
     check(await page.getByText("45 saved posts on Instagram (@test.account)").isVisible(), "shows which account it read");
     await page.getByText(/Cover images added \(45\)/).waitFor({ timeout: 60_000 });
@@ -213,7 +236,7 @@ async function run() {
       JSON.stringify(ig.saved.slice(0, order.length)) === JSON.stringify(order),
       `Instagram's first ${order.length} saves now match Keeper's A–Z order`,
     );
-    const recipes = posts.filter((_, i) => i % 3 === 0).map((p) => p.code).sort();
+    const recipes = mainPosts.filter((_, i) => i % 3 === 0).map((p) => p.code).sort();
     check(
       JSON.stringify([...ig.collections.get("17900000000000001").items].sort()) === JSON.stringify(recipes),
       "Recipes still has exactly its posts after re-saving",
@@ -230,6 +253,48 @@ async function run() {
     check(true, "a post saved on Instagram appears after reopening Keeper");
     check((await page.locator("[role=listitem]").first().getAttribute("data-id")) === fresh.code, "it lands on top");
     check(await page.getByText("46 bookmarks").first().isVisible(), "total is now 46");
+
+    console.log("A second Instagram account:");
+    await context.clearCookies();
+    await logIn(OTHER_ID);
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+    await page.getByRole("button", { name: "New library for @second.account" }).click({ timeout: 30_000 });
+    await page.getByText(/Added 5 bookmarks/).waitFor({ timeout: 30_000 });
+    check(true, "imports another account into its own library, after asking");
+    await page.getByRole("button", { name: "Done" }).click();
+    check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
+    check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
+
+    const copied = [otherPosts[0].code, otherPosts[1].code];
+    for (const c of copied) await page.locator(`[data-id="${c}"] input[type=checkbox]`).check();
+    await page.getByRole("button", { name: /Copy to/ }).click();
+    await page.getByRole("button", { name: /@test\.account/ }).click();
+    await page.getByText(/Copied 2 bookmarks to @test\.account/).waitFor();
+    check(true, "copies selected bookmarks to the other account's library");
+
+    await page.getByTestId("account-menu").click();
+    await page.getByRole("button", { name: /@test\.account/ }).click();
+    await page.getByText("Switched to @test.account").waitFor();
+    const top = await page.evaluate(() =>
+      [...document.querySelectorAll("[role=listitem]")].sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)).slice(0, 2).map((r) => r.dataset.id),
+    );
+    check(JSON.stringify(top) === JSON.stringify(copied), "the copies sit on top of @test.account's library");
+
+    await context.clearCookies();
+    await logIn(USER_ID);
+    await page.getByRole("button", { name: "Sync to Instagram" }).click();
+    await page.getByRole("checkbox", { name: /I understand/ }).check();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByText(/2 new to this account/).waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Start sync" }).click();
+    await page.getByText("Finished").waitFor({ timeout: 60_000 });
+    if (!copied.every((c) => ig.saved.includes(c))) {
+      console.log("CALLS:", ig.calls.slice(-8), "TOP:", ig.saved.slice(0, 3), "DIALOG:", await page.getByRole("dialog").innerText());
+    }
+    check(copied.every((c) => ig.saved.includes(c)), "Sync saved the copied posts on @test.account's Instagram");
+    check(!second.saved.some((c) => !otherPosts.some((p) => p.code === c)), "the second account wasn't touched");
+    await page.getByRole("dialog").getByText("Close", { exact: true }).click();
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
     await context.close();

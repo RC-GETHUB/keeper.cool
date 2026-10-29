@@ -1,6 +1,7 @@
 import type { Bookmark, ImportedCollection, ImportResult } from "../types";
 import { parseSavedCollectionsHtml, parseSavedPostsHtml } from "./export-html";
 import { parseSavedCollectionsJson, parseSavedPostsJson, type ParsedCollections, type ParsedPosts } from "./export-json";
+import { usernameFromExportName } from "../libraries";
 import { readZipText } from "./zip";
 
 export interface ExportFile {
@@ -114,5 +115,8 @@ export async function readExport(files: File[]): Promise<ImportResult> {
       texts.push({ name: `${kind}${file.name.slice(file.name.lastIndexOf("."))}`, text });
     }
   }
-  return parseExportFiles(texts);
+  const result = parseExportFiles(texts);
+  const username = [...files.map((f) => f.name), ...texts.map((t) => t.name)].map(usernameFromExportName).find(Boolean);
+  if (username) result.sourceUsername = username;
+  return result;
 }

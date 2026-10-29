@@ -14,7 +14,8 @@ interface Props {
   /** Start importing from Instagram straight away (the welcome screen's button). */
   autoStart?: boolean;
   onClose: () => void;
-  onImport: (result: ImportResult) => MergeSummary;
+  /** Merges the import into the right account's library (which may mean switching to it). */
+  onImport: (result: ImportResult) => MergeSummary | Promise<MergeSummary>;
   /** Cover images arrive after the import, in batches. */
   onThumbs: (items: { code: string; data: string }[]) => void;
 }
@@ -48,7 +49,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
     setStatus({ state: "reading" });
     try {
       const result = await readExport(files);
-      setStatus({ state: "done", result, summary: onImport(result), source: "file" });
+      setStatus({ state: "done", result, summary: await onImport(result), source: "file" });
     } catch (e) {
       setStatus({ state: "error", message: e instanceof Error ? e.message : "Something went wrong reading that file." });
     }
@@ -66,7 +67,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
         }
       });
       const result = fromInstagramRead(read);
-      setStatus({ state: "done", result, summary: onImport(result), source: "instagram" });
+      setStatus({ state: "done", result, summary: await onImport(result), source: "instagram" });
     } catch (e) {
       if (e instanceof ExtensionError && e.code === "login") {
         setStatus({ state: "login", waiting: false });
