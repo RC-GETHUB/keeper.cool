@@ -2,6 +2,9 @@
 
 Sort, rename and tidy your Instagram saved posts.
 
+**Live:** https://keeper-cool.vercel.app (Vercel project `keeper-cool` in the
+REMARCS TEAM team; every push to `main` deploys).
+
 Instagram keeps saves in the order you saved them and gives you no way to
 rearrange, rename or search them. Keeper brings your saves in, lets you
 organize them, and (next phase) pushes the new order and collections back to
