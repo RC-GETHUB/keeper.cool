@@ -1,8 +1,8 @@
 "use client";
 
-import { Bookmark as BookmarkIcon, Copy, Download, Folder, FolderPlus, Inbox, Pencil, Search, Trash2 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
-import { normalize, type Counts, type Scope } from "@/lib/library/query";
+import { Bookmark as BookmarkIcon, Check, Copy, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { sortCollections, type CollectionSort, type Counts, type Scope } from "@/lib/library/query";
 import type { Collection, Library } from "@/lib/types";
 import { InlineEdit, fmtCount } from "./ui";
 
@@ -15,6 +15,10 @@ interface Props {
   onCreate: (name: string) => string | null;
   onRenameCollection: (id: string, name: string) => string | null;
   onDeleteCollection: (id: string) => void;
+  /** Moves a collection to `toIndex` of the list as it is without it. */
+  onMoveCollection: (id: string, toIndex: number) => void;
+  /** Saves the shown order (e.g. A–Z) as the custom order. */
+  onOrderCollections: (ids: string[]) => void;
   onBackup: () => void;
   onReset: () => void;
 }
@@ -26,6 +30,9 @@ function Item({
   count,
   onClick,
   actions,
+  handle,
+  dimmed,
+  id,
 }: {
   active: boolean;
   icon: ReactNode;
@@ -33,14 +40,23 @@ function Item({
   count: number;
   onClick: () => void;
   actions?: ReactNode;
+  handle?: ReactNode;
+  dimmed?: boolean;
+  id?: string;
 }) {
   return (
     <div
-      className={`group flex items-center rounded-lg ${
+      data-collection-id={id}
+      className={`group flex items-center rounded-lg ${dimmed ? "opacity-40" : ""} ${
         active ? "bg-accent-soft text-accent dark:bg-accent/20 dark:text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-900"
       }`}
     >
-      <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left text-sm">
+      {handle}
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-2.5 text-left text-sm ${handle ? "pl-0.5" : "pl-2.5"}`}
+      >
         <span className="shrink-0 opacity-70">{icon}</span>
         <span className="truncate font-medium">{label}</span>
       </button>
@@ -52,7 +68,14 @@ function Item({
   );
 }
 
-type CollectionSort = "yours" | "az" | "size";
+const SORTS: { value: CollectionSort; label: string }[] = [
+  { value: "custom", label: "Custom order" },
+  { value: "az", label: "A–Z" },
+  { value: "za", label: "Z–A" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "size", label: "Most posts" },
+];
 
 /** The first post in the collection that has a cover image. */
 function coverOf(lib: Library, c: Collection): string | undefined {
@@ -69,8 +92,6 @@ function CollectionIcon({ cover }: { cover?: string }) {
   return <img src={cover} alt="" className="block size-5 rounded object-cover" />;
 }
 
-const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
-
 const iconButton =
   "rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-800 dark:hover:bg-neutral-800 dark:hover:text-neutral-100";
 
@@ -83,22 +104,78 @@ export function Sidebar({
   onCreate,
   onRenameCollection,
   onDeleteCollection,
+  onMoveCollection,
+  onOrderCollections,
   onBackup,
   onReset,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<CollectionSort>("yours");
-
-  const shown = useMemo(() => {
-    const terms = normalize(filter).trim();
-    let list = terms ? lib.collections.filter((c) => normalize(c.name).includes(terms)) : lib.collections;
-    if (sort === "az") list = [...list].sort((a, b) => collator.compare(a.name, b.name));
-    if (sort === "size") list = [...list].sort((a, b) => b.items.length - a.items.length);
-    return list;
-  }, [lib.collections, filter, sort]);
+  const [sort, setSort] = useState<CollectionSort>("custom");
+  const shown = useMemo(() => sortCollections(lib.collections, sort, filter), [lib.collections, sort, filter]);
   const many = lib.collections.length > 8;
+  const canDrag = sort === "custom" && !filter;
+
+  // Dragging: the target is the gap before the collection under the pointer.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ id: string; target: number } | null>(null);
+  const targetFor = (clientY: number) => {
+    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-collection-id]") ?? [])];
+    const i = rows.findIndex((row) => {
+      const r = row.getBoundingClientRect();
+      return clientY < r.top + r.height / 2;
+    });
+    return i < 0 ? rows.length : i;
+  };
+  const dropAt = (id: string, target: number) => {
+    const from = lib.collections.findIndex((c) => c.id === id);
+    const to = target > from ? target - 1 : target;
+    if (to !== from) onMoveCollection(id, to);
+  };
+
+  const handleFor = (id: string, index: number, name: string) =>
+    canDrag ? (
+      <button
+        type="button"
+        aria-label={`Drag to reorder ${name}`}
+        title="Drag to reorder (or focus and use ↑ ↓)"
+        className="flex h-8 w-5 shrink-0 touch-none items-center justify-center text-neutral-300 hover:text-neutral-600 dark:text-neutral-700 dark:hover:text-neutral-300"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDrag({ id, target: targetFor(e.clientY) });
+        }}
+        onPointerMove={(e) => {
+          if (!drag) return;
+          // Scroll the sidebar when dragging near its edges.
+          const nav = listRef.current?.closest("nav");
+          if (nav) {
+            const r = nav.getBoundingClientRect();
+            if (e.clientY < r.top + 40) nav.scrollTop -= 12;
+            else if (e.clientY > r.bottom - 40) nav.scrollTop += 12;
+          }
+          setDrag({ id, target: targetFor(e.clientY) });
+        }}
+        onPointerUp={() => {
+          if (drag) dropAt(drag.id, drag.target);
+          setDrag(null);
+        }}
+        onPointerCancel={() => setDrag(null)}
+        onKeyDown={(e) => {
+          const to = e.key === "ArrowUp" ? index - 1 : e.key === "ArrowDown" ? index + 1 : -1;
+          if (to < 0 || to >= lib.collections.length) return;
+          e.preventDefault();
+          onMoveCollection(id, to);
+          requestAnimationFrame(() =>
+            listRef.current?.querySelector<HTMLElement>(`[data-collection-id="${id}"] button`)?.focus(),
+          );
+        }}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+    ) : null;
 
   return (
     <nav className="flex h-full flex-col gap-4 overflow-y-auto p-3" aria-label="Collections">
@@ -150,33 +227,51 @@ export function Sidebar({
             />
           </div>
         )}
-        {many && (
-          <div className="flex gap-1.5 px-1 pb-1.5">
-            <label className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-neutral-400" />
-              <input
-                type="search"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Find a collection"
-                aria-label="Find a collection"
-                className="w-full rounded-md border border-neutral-200 bg-transparent py-1 pr-2 pl-7 text-xs outline-none focus:border-accent dark:border-neutral-800"
-              />
-            </label>
+        {lib.collections.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 px-1 pb-1.5">
+            {many && (
+              <label className="relative min-w-0 flex-1 basis-28">
+                <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-neutral-400" />
+                <input
+                  type="search"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Find a collection"
+                  aria-label="Find a collection"
+                  className="w-full rounded-md border border-neutral-200 bg-transparent py-1 pr-2 pl-7 text-xs outline-none focus:border-accent dark:border-neutral-800"
+                />
+              </label>
+            )}
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as CollectionSort)}
               aria-label="Sort collections"
-              className="rounded-md border border-neutral-200 bg-white px-1 text-xs dark:border-neutral-800 dark:bg-neutral-950"
+              className={`rounded-md border border-neutral-200 bg-white px-1 py-1 text-xs dark:border-neutral-800 dark:bg-neutral-950 ${many ? "" : "flex-1"}`}
             >
-              <option value="yours">Your order</option>
-              <option value="az">A–Z</option>
-              <option value="size">Most posts</option>
+              {SORTS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
+            {sort !== "custom" && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOrderCollections(shown.map((c) => c.id));
+                  setSort("custom");
+                }}
+                className="flex w-full items-center justify-center gap-1 rounded-md border border-neutral-200 py-1 text-xs font-medium text-neutral-700 hover:border-accent hover:text-accent dark:border-neutral-800 dark:text-neutral-300"
+                title="Make this the custom order"
+              >
+                <Check className="size-3.5" /> Keep this order
+              </button>
+            )}
           </div>
         )}
         {filter && shown.length === 0 && <p className="px-2.5 py-1 text-xs text-neutral-500">No collection matches “{filter}”.</p>}
-        {shown.map((c) =>
+        <div ref={listRef} className="relative space-y-0.5">
+        {shown.map((c, index) =>
           renaming === c.id ? (
             <div key={c.id} className="px-1 py-0.5">
               <InlineEdit
@@ -190,8 +285,12 @@ export function Sidebar({
               />
             </div>
           ) : (
+            <div key={c.id} className="relative">
+            {drag && drag.target === index && <div className="pointer-events-none absolute inset-x-1 -top-px z-10 h-0.5 rounded bg-accent" />}
             <Item
-              key={c.id}
+              id={c.id}
+              handle={handleFor(c.id, index, c.name)}
+              dimmed={drag?.id === c.id}
               active={scope.type === "collection" && scope.id === c.id}
               icon={<CollectionIcon cover={coverOf(lib, c)} />}
               label={c.name}
@@ -214,8 +313,11 @@ export function Sidebar({
                 </>
               }
             />
+            </div>
           ),
         )}
+        {drag && drag.target === shown.length && <div className="pointer-events-none h-0.5 rounded bg-accent" />}
+        </div>
         {lib.collections.length === 0 && !adding && (
           <p className="px-2.5 py-1 text-xs text-neutral-500">No collections yet.</p>
         )}

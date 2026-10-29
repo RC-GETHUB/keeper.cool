@@ -160,6 +160,20 @@ export function moveCollection(lib: Library, id: string, toIndex: number): Libra
   return touch(lib, { collections });
 }
 
+/**
+ * Puts collections in the given order, e.g. the sidebar's A–Z view.
+ * `ids` may be a subset (a filtered view): those take the slots they already
+ * occupy, in the given order, and the rest stay put.
+ */
+export function orderCollections(lib: Library, ids: string[]): Library {
+  const byId = new Map(lib.collections.map((c) => [c.id, c]));
+  const queue = unique(ids).filter((id) => byId.has(id));
+  const reordering = new Set(queue);
+  let q = 0;
+  const collections = lib.collections.map((c) => (reordering.has(c.id) ? byId.get(queue[q++])! : c));
+  return collections.every((c, i) => c === lib.collections[i]) ? lib : touch(lib, { collections });
+}
+
 /** Adds bookmarks to the top of a collection, skipping ones already in it. */
 export function addToCollection(lib: Library, id: string, ids: string[]): Library {
   return updateCollection(lib, id, (c) => {

@@ -1,4 +1,4 @@
-import type { Bookmark, Library } from "../types";
+import type { Bookmark, Collection, Library } from "../types";
 import type { DuplicateReport } from "./duplicates";
 
 export type SortMode = "custom" | "az" | "za" | "newest" | "oldest";
@@ -64,6 +64,8 @@ function sortKey(bookmark: Bookmark): string {
   }
   return key;
 }
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
 // The A–Z position of every bookmark, worked out once per version of the
 // bookmarks and reused by every view, filter and collection after that.
@@ -168,4 +170,26 @@ export function countLibrary(lib: Library): Counts {
   const collections: Record<string, number> = {};
   for (const c of lib.collections) collections[c.id] = c.items.length;
   return { total: lib.order.length, unfiled: lib.order.length - filed.size, collections };
+}
+
+export type CollectionSort = "custom" | "az" | "za" | "newest" | "oldest" | "size";
+
+/** Collections to show in the sidebar: filtered by name, in the chosen order. */
+export function sortCollections(collections: Collection[], sort: CollectionSort, filter = ""): Collection[] {
+  const terms = queryTerms(filter);
+  let list = terms.length ? collections.filter((c) => terms.every((t) => normalize(c.name).includes(t))) : collections;
+  if (sort === "custom") return list;
+  list = [...list];
+  const byName = (a: Collection, b: Collection) => collator.compare(a.name, b.name);
+  // Collections with no date (made before dates were known) go last either way.
+  const byDate = (dir: number) => (a: Collection, b: Collection) =>
+    a.createdAt === undefined || b.createdAt === undefined
+      ? (a.createdAt === undefined ? 1 : 0) - (b.createdAt === undefined ? 1 : 0)
+      : dir * (a.createdAt - b.createdAt);
+  if (sort === "az") list.sort(byName);
+  if (sort === "za") list.sort((a, b) => byName(b, a));
+  if (sort === "newest") list.sort(byDate(-1));
+  if (sort === "oldest") list.sort(byDate(1));
+  if (sort === "size") list.sort((a, b) => b.items.length - a.items.length || byName(a, b));
+  return list;
 }

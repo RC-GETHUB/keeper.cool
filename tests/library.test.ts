@@ -9,12 +9,13 @@ import {
   mergeImport,
   moveCollection,
   moveItems,
+  orderCollections,
   removeBookmarks,
   removeFromCollection,
   renameBookmark,
   renameCollection,
 } from "@/lib/library/ops";
-import { countLibrary, displayName, viewIds } from "@/lib/library/query";
+import { countLibrary, displayName, sortCollections, viewIds } from "@/lib/library/query";
 import type { Bookmark, ImportResult } from "@/lib/types";
 
 function bm(id: string, extra: Partial<Bookmark> = {}): Bookmark {
@@ -199,5 +200,38 @@ describe("findDuplicates", () => {
       result([bm("a", { caption }), bm("b", { caption, thumbnailUrl: "t" }), bm("c", { thumbnailUrl: "t" })]),
     ).library;
     expect(findDuplicates(library).lookalikes).toEqual([["a", "b", "c"]]);
+  });
+});
+
+describe("collection order", () => {
+  const library = () => {
+    let lib = emptyLibrary();
+    for (const [name, createdAt] of [["travel", 300], ["Art", 100], ["recipes", undefined], ["Books 10", 200], ["Books 9", 250]] as const) {
+      lib = createCollection(lib, name).library;
+      const c = lib.collections[lib.collections.length - 1];
+      lib = { ...lib, collections: lib.collections.map((x) => (x === c ? { ...x, createdAt } : x)) };
+    }
+    return lib;
+  };
+  const names = (list: { name: string }[]) => list.map((c) => c.name);
+
+  it("sorts A–Z, Z–A, by date added and by size", () => {
+    const lib = library();
+    expect(names(sortCollections(lib.collections, "az"))).toEqual(["Art", "Books 9", "Books 10", "recipes", "travel"]);
+    expect(names(sortCollections(lib.collections, "za"))).toEqual(["travel", "recipes", "Books 10", "Books 9", "Art"]);
+    expect(names(sortCollections(lib.collections, "newest"))).toEqual(["travel", "Books 9", "Books 10", "Art", "recipes"]);
+    expect(names(sortCollections(lib.collections, "oldest"))).toEqual(["Art", "Books 10", "Books 9", "travel", "recipes"]);
+    expect(names(sortCollections(lib.collections, "custom", "books"))).toEqual(["Books 10", "Books 9"]);
+  });
+
+  it("drags and keeps a sorted order", () => {
+    let lib = library();
+    lib = moveCollection(lib, lib.collections[4].id, 0);
+    expect(names(lib.collections)).toEqual(["Books 9", "travel", "Art", "recipes", "Books 10"]);
+    lib = orderCollections(lib, sortCollections(lib.collections, "az").map((c) => c.id));
+    expect(names(lib.collections)).toEqual(["Art", "Books 9", "Books 10", "recipes", "travel"]);
+    // A filtered view only reorders what it shows.
+    lib = orderCollections(lib, sortCollections(lib.collections, "za", "books").map((c) => c.id));
+    expect(names(lib.collections)).toEqual(["Art", "Books 10", "Books 9", "recipes", "travel"]);
   });
 });

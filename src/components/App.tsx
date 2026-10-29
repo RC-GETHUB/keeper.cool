@@ -26,7 +26,9 @@ import {
   deleteCollection,
   emptyLibrary,
   mergeImport,
+  moveCollection,
   moveItems,
+  orderCollections,
   removeBookmarks,
   removeFromCollection,
   renameBookmark,
@@ -347,6 +349,8 @@ export function App() {
                 run: () => commit(deleteCollection(lib, id), `Deleted “${c.name}”`),
               });
             }}
+            onMoveCollection={(id, to) => commit(moveCollection(lib, id, to))}
+            onOrderCollections={(ids) => commit(orderCollections(lib, ids), "Saved the collection order")}
             onBackup={backup}
             onReset={reset}
           />
