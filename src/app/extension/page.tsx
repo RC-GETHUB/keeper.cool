@@ -78,6 +78,13 @@ export default function ExtensionPage() {
           Instagram doesn&apos;t officially support tools like this, so try syncing on a spare account first.
         </li>
       </ul>
+      <p className="mt-6 text-sm text-neutral-600 dark:text-neutral-400">
+        More in the{" "}
+        <Link href="/privacy" className="font-medium text-accent underline underline-offset-2">
+          privacy policy
+        </Link>
+        .
+      </p>
     </main>
   );
 }

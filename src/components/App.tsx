@@ -275,7 +275,7 @@ export function App() {
   };
 
   const loadSample = (size: number) => {
-    commit(mergeImport(lib, syntheticImport(size, { collections: 8 })).library, `Loaded ${plural(size, "sample bookmark")}`);
+    commit(mergeImport(lib, syntheticImport(size, { collections: 8, covers: true })).library, `Loaded ${plural(size, "sample bookmark")}`);
   };
 
   const backup = () => {

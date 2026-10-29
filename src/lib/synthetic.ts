@@ -16,6 +16,21 @@ function rng(seed: number) {
 const CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const ADJECTIVES = ["easy", "crispy", "cozy", "minimal", "vintage", "quick", "spicy", "golden", "tiny", "bold", "sunny", "rainy", "lazy", "perfect", "secret"];
 const NOUNS = ["pasta", "living room", "sneakers", "sunset", "workout", "latte art", "garden", "road trip", "haircut", "bookshelf", "tacos", "skincare", "studio", "cabin", "sourdough", "café crawl"];
+const EMOJI: Record<string, string> = {
+  pasta: "🍝", "living room": "🛋️", sneakers: "👟", sunset: "🌅", workout: "🏋️", "latte art": "☕", garden: "🌿", "road trip": "🚐",
+  haircut: "💇", bookshelf: "📚", tacos: "🌮", skincare: "🧴", studio: "🎨", cabin: "🏡", sourdough: "🍞", "café crawl": "🥐",
+};
+const GRADIENTS = [["#ffb199", "#ff0844"], ["#a1c4fd", "#c2e9fb"], ["#d4fc79", "#96e6a1"], ["#fbc2eb", "#a6c1ee"], ["#fddb92", "#d1fdff"], ["#f6d365", "#fda085"], ["#84fab0", "#8fd3f4"], ["#cfd9df", "#e2ebf0"]];
+
+/**
+ * A small illustrated cover for sample posts, so the sample looks like a real
+ * library. Each is unique (the <desc>), so only reposts match as look-alikes.
+ */
+function sampleCover(noun: string, seed: number): string {
+  const [a, b] = GRADIENTS[seed % GRADIENTS.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="112" height="112" fill="url(#g)"/><text x="56" y="70" font-size="46" text-anchor="middle">${EMOJI[noun] ?? "📌"}</text><desc>${seed}</desc></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 const EXTRAS = ["you need to try this", "saving this for later", "step by step", "in 10 minutes", "on a budget", "that changed my life", "for beginners", "full tutorial below", "weekend vibes", "game changer"];
 const HANDLES = ["chef.maria", "dailyinteriors", "run_with_sam", "the.plant.lady", "urbanframes", "lisa.makes", "tokyo_eats", "coffee.lab", "minimal.homes", "jo_travels", "fitwithkai", "bakeclub", "streetstyle.daily", "olstudio", "ana.draws"];
 const COLLECTIONS = ["Recipes", "Home ideas", "Travel", "Workouts", "Outfits", "Art", "Coffee", "Skincare", "Gifts", "Hair", "Garden", "Books"];
@@ -35,6 +50,8 @@ export interface SyntheticOptions {
   collections?: number;
   /** Share of posts that are reposts of an earlier caption. */
   repostRate?: number;
+  /** Give posts illustrated covers (for the in-app sample). */
+  covers?: boolean;
 }
 
 /** A library as the extension would import it, with captions. */
@@ -50,16 +67,16 @@ export function syntheticImport(size: number, options: SyntheticOptions = {}): I
     while (ids.has(id)) id = code(rand);
     ids.add(id);
     const kind: PostKind = rand() < 0.35 ? "reel" : "post";
-    const caption =
-      i > 10 && rand() < repostRate
-        ? bookmarks[Math.floor(rand() * bookmarks.length)].caption
-        : `${pick(rand, ADJECTIVES)} ${pick(rand, NOUNS)} ${pick(rand, EXTRAS)} #${pick(rand, NOUNS).replace(" ", "")}`;
+    const repost = i > 10 && rand() < repostRate ? bookmarks[Math.floor(rand() * bookmarks.length)] : null;
+    const noun = pick(rand, NOUNS);
+    const caption = repost ? repost.caption : `${pick(rand, ADJECTIVES)} ${noun} ${pick(rand, EXTRAS)} #${pick(rand, NOUNS).replace(" ", "")}`;
     bookmarks.push({
       id,
       kind,
       url: postUrl(id, kind),
       author: pick(rand, HANDLES),
       caption,
+      thumbnailUrl: options.covers ? (repost?.thumbnailUrl ?? sampleCover(noun, i)) : undefined,
       // Newest first, a few hours apart.
       savedAt: now - i * 3_600_000 * (1 + Math.floor(rand() * 6)),
     });
