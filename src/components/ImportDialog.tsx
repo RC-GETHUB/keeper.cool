@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { readExport } from "@/lib/import";
 import type { MergeSummary } from "@/lib/library/ops";
 import type { ImportResult } from "@/lib/types";
-import { ghostButton, plural, primaryButton } from "./ui";
+import { formatDate, ghostButton, plural, primaryButton } from "./ui";
 
 interface Props {
   onClose: () => void;
@@ -69,6 +69,7 @@ export function ImportDialog({ onClose, onImport }: Props) {
                 )}
               </ul>
             </div>
+            <DateRangeHint result={status.result} />
             {status.result.warnings.map((w) => (
               <p key={w} className="text-sm text-amber-700 dark:text-amber-300">
                 {w}
@@ -90,10 +91,16 @@ export function ImportDialog({ onClose, onImport }: Props) {
                 Pick your Instagram profile, then <b>Export to device</b>.
               </li>
               <li>
-                Choose only your <b>saved posts and collections</b> for a small, quick export. Set the date range to <b>All time</b>, the format to <b>JSON</b> (HTML works too) and media quality to <b>low</b>, then tap <b>Start export</b>.
+                Open <b>Customize information</b> and tick only <b>Saved</b>. Instagram ticks lots of other sections for you, so tap{" "}
+                <b>Clear all</b> on every other section, then <b>Save</b>.
               </li>
               <li>
-                Instagram emails you when it&apos;s ready. That&apos;s often within the hour, but Meta says it can take up to 30 days. The download link works for 4 days.
+                Change <b>Date range</b> to <b>All time</b>. It starts on &ldquo;Last year&rdquo;, which leaves out older saves. Set{" "}
+                <b>Format</b> to <b>JSON</b> (HTML works too) and <b>Media quality</b> to <b>Low</b>.
+              </li>
+              <li>
+                Tap <b>Start export</b> and enter your Instagram password if asked. Instagram emails you when it&apos;s ready: often
+                within the hour, though Meta says it can take up to 30 days. The download works for 4 days.
               </li>
               <li>Download the zip and drop it below. No need to unzip it.</li>
             </ol>
@@ -160,6 +167,38 @@ export function ImportDialog({ onClose, onImport }: Props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const YEAR = 365 * 24 * 3600 * 1000;
+
+/**
+ * Instagram's export defaults to the last year. When the oldest save in the
+ * file is about that old (or newer), say what the file covers and how to get
+ * the rest, in case the date range was left as it was.
+ */
+function DateRangeHint({ result }: { result: ImportResult }) {
+  let oldest = Infinity;
+  let newest = -Infinity;
+  for (const b of result.bookmarks) {
+    if (b.savedAt === undefined) continue;
+    oldest = Math.min(oldest, b.savedAt);
+    newest = Math.max(newest, b.savedAt);
+  }
+  if (!Number.isFinite(oldest)) return null;
+  const recentOnly = Date.now() - oldest < YEAR + 14 * 24 * 3600 * 1000;
+  return (
+    <div className="space-y-1 text-sm">
+      <p className="text-neutral-600 dark:text-neutral-400">
+        This file has saves from {formatDate(oldest)} to {formatDate(newest)}.
+      </p>
+      {recentOnly && (
+        <p className="text-amber-700 dark:text-amber-300">
+          Missing older saves? The export may have been set to &ldquo;Last year&rdquo;. Request a new one with Date range set to
+          All time and import it too. Nothing here gets duplicated.
+        </p>
+      )}
     </div>
   );
 }
