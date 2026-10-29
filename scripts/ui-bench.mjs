@@ -139,14 +139,14 @@ async function run() {
 
       const before = await firstRowId(page);
       r.sortAzMs = await timed(async () => {
-        await page.getByRole("combobox", { name: "Sort" }).selectOption("az");
+        await page.getByRole("combobox", { name: "Sort", exact: true }).selectOption("az");
         await page.waitForFunction((b) => document.querySelector("[role=listitem]")?.getAttribute("data-id") !== b, before, { polling: "raf" });
       });
       r.sortNewestMs = await timed(async () => {
-        await page.getByRole("combobox", { name: "Sort" }).selectOption("newest");
+        await page.getByRole("combobox", { name: "Sort", exact: true }).selectOption("newest");
         await page.waitForFunction((b) => document.querySelector("[role=listitem]")?.getAttribute("data-id") === b, before, { polling: "raf" });
       });
-      await page.getByRole("combobox", { name: "Sort" }).selectOption("custom");
+      await page.getByRole("combobox", { name: "Sort", exact: true }).selectOption("custom");
 
       // Drag the first bookmark down three rows.
       const firstId = await page.locator("[role=listitem]").first().getAttribute("data-id");

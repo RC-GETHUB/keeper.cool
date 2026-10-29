@@ -188,7 +188,7 @@ async function run() {
     await page.getByRole("dialog").getByText("Close", { exact: true }).click();
 
     console.log("Push a full A–Z re-sort:");
-    await page.getByRole("combobox", { name: "Sort" }).selectOption("az");
+    await page.getByRole("combobox", { name: "Sort", exact: true }).selectOption("az");
     await page.getByRole("button", { name: /Keep this order/ }).click();
     const order = await page.evaluate(async () => {
       const ids = [...document.querySelectorAll("[role=listitem]")]
