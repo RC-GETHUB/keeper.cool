@@ -55,6 +55,7 @@ const byPk = new Map(posts.map((p) => [p.pk, p]));
 const second = { username: "second.account", saved: otherPosts.map((p) => p.code), collections: new Map() };
 const ig = {
   username: "test.account",
+  failOnce: true,
   saved: mainPosts.map((p) => p.code), // newest first
   collections: new Map([
     ["17900000000000001", { name: "Recipes", items: mainPosts.filter((_, i) => i % 3 === 0).map((p) => p.code) }],
@@ -92,13 +93,18 @@ async function mockInstagram(context) {
     const json = (body) => route.fulfill({ status: 200, contentType: "application/json", body });
     if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Fake Instagram</body></html>" });
     if (request.method() === "POST" && request.headers()["x-csrftoken"] !== "csrf-test") return route.fulfill({ status: 403, body: "CSRF" });
-    ig.calls.push(`${request.method()} ${path}`);
+    ig.calls.push(`${request.method()} ${path}${url.search}`);
     // Whoever is logged in (by cookie) gets their own saves.
     const uid = /ds_user_id=(\d+)/.exec((await request.allHeaders()).cookie ?? "")?.[1];
     const acct = uid === OTHER_ID ? second : ig;
 
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
     if (info) return json(`{"user":{"username":"${info[1] === OTHER_ID ? second.username : ig.username}"},"status":"ok"}`);
+    // The first time, fail part-way through the saved list, like Instagram dropping a session.
+    if (path === "/api/v1/feed/saved/posts/" && url.searchParams.get("max_id") === "20" && ig.failOnce) {
+      ig.failOnce = false;
+      return route.fulfill({ status: 401, contentType: "application/json", body: '{"message":"login_required","status":"fail"}' });
+    }
     if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
     if (path === "/api/v1/collections/list/") {
       const items = [...acct.collections].map(([id, c]) => `{"collection_id":${id},"collection_name":"${c.name}","collection_type":"MEDIA"}`);
@@ -177,13 +183,20 @@ async function run() {
     const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
     check(popup.url().startsWith("https://www.instagram.com/accounts/login"), "opens Instagram's own login page in a pop-up");
     await logIn();
+    // Instagram drops the session part-way: Keeper asks again, then carries on from where it stopped.
+    await page.getByText(/Instagram said: 401 login_required/).waitFor({ timeout: 60_000 });
+    check(true, "shows what Instagram said when it stops part-way");
+    const savedCallsBefore = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).length;
+    await page.getByRole("button", { name: "Log in to Instagram" }).click();
     await page.getByText(/Added 45 bookmarks/).waitFor({ timeout: 60_000 }).catch(async (e) => {
       console.log("DIALOG:", await page.getByRole("dialog").innerText().catch(() => "none"));
       console.log("ERRORS:", errors);
       console.log("CALLS:", ig.calls.slice(-5));
       throw e;
     });
-    check(true, "45 saved posts imported");
+    check(true, "45 saved posts imported, with nothing doubled after the retry");
+    const retry = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).slice(savedCallsBefore);
+    check(retry[0]?.endsWith("max_id=20"), "the retry picked up where it stopped instead of starting over");
     check(await page.getByText("45 saved posts on Instagram (@test.account)").isVisible(), "shows which account it read");
     await page.getByText(/Cover images added \(45\)/).waitFor({ timeout: 60_000 });
     check(true, "45 cover images made");

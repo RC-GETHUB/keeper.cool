@@ -22,7 +22,11 @@ function describe(job) {
 
 async function refresh() {
   const job = await chrome.runtime.sendMessage({ type: "status" });
+  const problem = await chrome.runtime.sendMessage({ type: "problem" });
   $("status").textContent = describe(job);
+  const recent = problem && Date.now() - problem.at < 3 * 3600_000;
+  $("problem").hidden = !recent;
+  if (recent) $("problem").textContent = `Last problem (${new Date(problem.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}): ${problem.message}${problem.detail ? ` Instagram said: ${problem.detail}` : ""}`;
   const active = job && (job.status === "running" || job.status === "waiting");
   const stopped = job && (job.status === "paused" || job.status === "blocked");
   $("pause").hidden = !active;

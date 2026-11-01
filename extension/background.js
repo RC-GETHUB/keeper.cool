@@ -7,13 +7,15 @@
 // sign Instagram is unhappy. Keep PACE in step with src/lib/push.ts.
 
 const PACE = {
-  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 700, pageMax: 1_500 },
+  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 1_500, pageMax: 3_000 },
   // Only for Keeper's automated tests on localhost.
   test: { postMin: 200, postMax: 400, gapMin: 50, gapMax: 100, perHour: Infinity, perDay: Infinity, pageMin: 10, pageMax: 20 },
 };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const JOB_KEY = "pushJob";
+const READ_KEY = "readProgress"; // a full read in progress, so a retry picks up where it stopped
+const PROBLEM_KEY = "lastProblem"; // what Instagram last said when something failed (shown in the popup)
 const ALARM = "keeper-push";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,7 +73,11 @@ async function ig(op, args) {
   } catch {
     throw { code: "no_tab", message: "The Instagram tab stopped responding. Keeper will open it again on the next try." };
   }
-  if (!reply || !reply.ok) throw (reply && reply.error) || { code: "unknown", message: "No answer from the Instagram tab." };
+  if (!reply || !reply.ok) {
+    const error = (reply && reply.error) || { code: "unknown", message: "No answer from the Instagram tab." };
+    await chrome.storage.local.set({ [PROBLEM_KEY]: { ...error, op, at: Date.now() } });
+    throw error;
+  }
   return reply.result;
 }
 
@@ -101,14 +107,20 @@ async function readInstagram(pace, emit) {
   const account = await ig("whoami");
   emit({ phase: "account", account });
 
-  const saved = [];
-  let maxId = null;
+  // A read that stopped part-way (logged out, slowed down, Chrome closed)
+  // carries on from where it got to, for up to six hours.
+  const stored = (await chrome.storage.local.get(READ_KEY))[READ_KEY];
+  const resume = stored && stored.userId === account.userId && stored.maxId && Date.now() - stored.at < 6 * HOUR;
+  const saved = resume ? stored.saved : [];
+  let maxId = resume ? stored.maxId : null;
+  if (resume) emit({ phase: "saved", count: saved.length });
   for (let page = 0; page < 5_000; page++) {
     const result = await ig("savedPage", { maxId });
     saved.push(...result.items);
     emit({ phase: "saved", count: saved.length });
     if (!result.more) break;
     maxId = result.next;
+    if (page % 3 === 0) await chrome.storage.local.set({ [READ_KEY]: { userId: account.userId, saved, maxId, at: Date.now() } });
     await sleep(between(pace.pageMin, pace.pageMax));
   }
 
@@ -129,6 +141,7 @@ async function readInstagram(pace, emit) {
     const byId = new Map(collections.map((c) => [c.id, { ...c, items: [] }]));
     for (const m of saved) for (const id of m.collectionIds) byId.get(id) && byId.get(id).items.push(m.code);
     emit({ phase: "collections", done: collections.length, total: collections.length });
+    await chrome.storage.local.remove(READ_KEY);
     return { account, saved, collections: [...byId.values()] };
   }
 
@@ -152,6 +165,7 @@ async function readInstagram(pace, emit) {
     filled.push(c);
     emit({ phase: "collections", done: i + 1, total: collections.length, name: c.name });
   }
+  await chrome.storage.local.remove(READ_KEY);
   return { account, saved, collections: filled };
 }
 
@@ -538,6 +552,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.tab) return false;
   const run = async () => {
     if (message.type === "status") return summary(await loadJob());
+    if (message.type === "problem") return (await chrome.storage.local.get(PROBLEM_KEY))[PROBLEM_KEY] || null;
     if (["pause", "resume", "cancel"].includes(message.type)) return setStatus(message.type);
     return null;
   };

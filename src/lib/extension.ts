@@ -68,8 +68,9 @@ function listen() {
     if (!entry.onEvent) pending.delete(data.id as string);
     if (data.ok) entry.resolve(data.result);
     else {
-      const error = (data.error ?? {}) as { code?: string; message?: string };
-      entry.reject(new ExtensionError(error.code ?? "unknown", error.message ?? "The extension couldn't do that."));
+      const error = (data.error ?? {}) as { code?: string; message?: string; detail?: string };
+      const message = error.message ?? "The extension couldn't do that.";
+      entry.reject(new ExtensionError(error.code ?? "unknown", error.detail ? `${message} (Instagram said: ${error.detail})` : message));
     }
   });
 }

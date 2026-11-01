@@ -70,7 +70,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
       setStatus({ state: "done", result, summary: await onImport(result), source: "instagram" });
     } catch (e) {
       if (e instanceof ExtensionError && e.code === "login") {
-        setStatus({ state: "login", waiting: false });
+        setStatus({ state: "login", waiting: false, message: e.message });
         return;
       }
       setStatus({

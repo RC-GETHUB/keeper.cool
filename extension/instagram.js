@@ -18,23 +18,25 @@
     return { code, message, ...extra };
   }
 
-  /** Sorts a failed response into something Keeper can act on. */
+  /** Sorts a failed response into something Keeper can act on, keeping what Instagram said. */
   function classify(status, json, text) {
     const message = (json && (json.message || json.feedback_message)) || "";
-    const lower = `${message} ${text.slice(0, 500)}`.toLowerCase();
+    const lower = `${message} ${text.slice(0, 2000)}`.toLowerCase();
+    const said = json ? message : text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    const detail = `${status}${said ? ` ${said}` : ""}`;
     if (status === 429 || (json && json.spam) || /feedback_required|wait a few minutes|try again later|rate limit/.test(lower)) {
-      return problem("blocked", "Instagram asked Keeper to slow down. Nothing more will be changed until you resume, ideally after a few hours.", { status });
+      return problem("blocked", "Instagram asked Keeper to slow down. Wait a few hours, then try again.", { status, detail });
     }
-    if (/checkpoint_required|challenge_required/.test(lower)) {
-      return problem("challenge", "Instagram wants you to confirm it's you. Open Instagram, follow its prompt, then resume.", { status });
+    if (/checkpoint_required|challenge_required|suspicious|confirm it.s you/.test(lower)) {
+      return problem("challenge", "Instagram wants you to confirm it's you. Open instagram.com, follow its prompt, then try again.", { status, detail });
     }
-    if (status === 401 || /login_required/.test(lower) || (!json && /<html/i.test(text))) {
-      return problem("login", "You're not logged into Instagram in this browser. Log in at instagram.com, then try again.", { status });
+    if (status === 401 || /login_required/.test(lower) || (!json && /accounts\/login|log in to instagram|loginform/.test(lower))) {
+      return problem("login", "You're not logged into Instagram in this browser. Log in at instagram.com, then try again.", { status, detail });
     }
     if (status === 404 || /media not found|not available|deleted/.test(lower)) {
-      return problem("not_found", "This post isn't available any more.", { status });
+      return problem("not_found", "This post isn't available any more.", { status, detail });
     }
-    return problem("unknown", message || `Instagram answered with an error (${status}).`, { status, detail: text.slice(0, 300) });
+    return problem("unknown", message || `Instagram answered with an unexpected reply (${status}).`, { status, detail });
   }
 
   async function api(path, { method = "GET", form } = {}) {

@@ -14,12 +14,14 @@
       .row { display: flex; gap: 6px; flex-wrap: wrap; }
       button, a.button { font: inherit; border: 1px solid #8885; background: none; color: inherit; border-radius: 8px; padding: 5px 10px; cursor: pointer; text-decoration: none; }
       a.primary { background: var(--accent); color: white; border-color: var(--accent); }
+      .problem { font-size: 12px; color: #b45309; }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <h1>keeper<span>.cool</span></h1>
     <p id="status">Loading…</p>
+    <p id="problem" class="problem" hidden></p>
     <div class="bar" id="bar" hidden><div></div></div>
     <div class="row">
       <button id="pause" hidden>Pause</button>
