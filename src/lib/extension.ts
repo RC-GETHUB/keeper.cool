@@ -23,7 +23,9 @@ export interface JobSummary {
 }
 
 export interface ReadProgress {
-  phase: "account" | "saved" | "collections" | "thumbs" | "thumbs-done";
+  phase: "account" | "saved" | "collections" | "thumbs" | "thumbs-done" | "retry";
+  /** For "retry": how long until the next try, in ms. */
+  wait?: number;
   account?: InstagramAccount;
   count?: number;
   done?: number;

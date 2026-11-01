@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Keeper – Saved Post Organizer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Organize your Instagram saved posts in keeper.cool, and sync your new order back. Works with Instagram; not affiliated with it.",
   "permissions": [
     "storage",

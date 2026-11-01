@@ -32,6 +32,7 @@ function progressText(p: ReadProgress | null): string {
   if (!p) return "Connecting to Instagram…";
   if (p.phase === "account") return `Connected to ${p.account?.username ? `@${p.account.username}` : "Instagram"}. Reading saved posts…`;
   if (p.phase === "saved") return `Found ${fmtCount.format(p.count ?? 0)} saved posts so far…`;
+  if (p.phase === "retry") return `Instagram is busy, so Keeper is waiting a moment. Trying again in ${Math.round((p.wait ?? 0) / 1000)} s…`;
   if (p.phase === "collections") return `Reading collections: ${fmtCount.format(p.done ?? 0)} of ${fmtCount.format(p.total ?? 0)}${p.name ? ` (${p.name})` : ""}…`;
   return "Finishing up…";
 }

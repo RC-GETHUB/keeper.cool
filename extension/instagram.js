@@ -43,6 +43,10 @@
     if (status === 401 || /login_required/.test(lower) || (!json && /accounts\/login|log in to instagram|loginform/.test(lower))) {
       return problem("login", "You're not logged into Instagram in this browser. Log in at instagram.com, then try again.", { status, detail });
     }
+    // 5xx, including Instagram's own 572: overloaded or briefly throttling. Worth retrying.
+    if (status >= 500) {
+      return problem("busy", "Instagram is busy right now. Try again in a minute.", { status, detail });
+    }
     if (status === 404 || /media not found|not available|deleted/.test(lower)) {
       return problem("not_found", "This post isn't available any more.", { status, detail });
     }

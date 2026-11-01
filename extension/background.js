@@ -7,9 +7,9 @@
 // sign Instagram is unhappy. Keep PACE in step with src/lib/push.ts.
 
 const PACE = {
-  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 1_500, pageMax: 3_000 },
+  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 1_500, pageMax: 3_000, retries: [5_000, 15_000, 45_000, 90_000] },
   // Only for Keeper's automated tests on localhost.
-  test: { postMin: 200, postMax: 400, gapMin: 50, gapMax: 100, perHour: Infinity, perDay: Infinity, pageMin: 10, pageMax: 20 },
+  test: { postMin: 200, postMax: 400, gapMin: 50, gapMax: 100, perHour: Infinity, perDay: Infinity, pageMin: 10, pageMax: 20, retries: [50, 50, 50, 50] },
 };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -84,6 +84,24 @@ async function ig(op, args) {
 // ---------------------------------------------------------------- Reading
 
 /**
+ * A read that waits and tries again when Instagram is busy (5xx, its 572)
+ * or the tab hiccups, instead of stopping the whole import.
+ */
+async function igRead(op, args, pace, emit) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ig(op, args);
+    } catch (error) {
+      const retryable = error && (error.code === "busy" || error.code === "no_tab" || error.code === "unknown");
+      if (!retryable || attempt >= pace.retries.length) throw error;
+      const wait = pace.retries[attempt];
+      if (emit) emit({ phase: "retry", wait, detail: error.detail || error.message });
+      await sleep(wait);
+    }
+  }
+}
+
+/**
  * Only what's been saved since Keeper last looked: reads from the top of the
  * Saved list until it reaches a post Keeper already has (usually one request).
  */
@@ -93,7 +111,7 @@ async function readNewSaves(pace, known) {
   const saved = [];
   let maxId = null;
   for (let page = 0; page < 10; page++) {
-    const result = await ig("savedPage", { maxId });
+    const result = await igRead("savedPage", { maxId }, pace);
     const firstKnown = result.items.findIndex((m) => knownSet.has(m.code));
     saved.push(...(firstKnown < 0 ? result.items : result.items.slice(0, firstKnown)));
     if (firstKnown >= 0 || !result.more) break;
@@ -115,7 +133,7 @@ async function readInstagram(pace, emit) {
   let maxId = resume ? stored.maxId : null;
   if (resume) emit({ phase: "saved", count: saved.length });
   for (let page = 0; page < 5_000; page++) {
-    const result = await ig("savedPage", { maxId });
+    const result = await igRead("savedPage", { maxId }, pace, emit);
     saved.push(...result.items);
     emit({ phase: "saved", count: saved.length });
     if (!result.more) break;
@@ -127,7 +145,7 @@ async function readInstagram(pace, emit) {
   const collections = [];
   maxId = null;
   for (let page = 0; page < 200; page++) {
-    const result = await ig("collectionsPage", { maxId });
+    const result = await igRead("collectionsPage", { maxId }, pace, emit);
     collections.push(...result.items);
     if (!result.more) break;
     maxId = result.next;
@@ -153,7 +171,7 @@ async function readInstagram(pace, emit) {
     maxId = null;
     for (let page = 0; page < 2_000; page++) {
       await sleep(between(pace.pageMin, pace.pageMax));
-      const result = await ig("collectionPage", { id: c.id, maxId });
+      const result = await igRead("collectionPage", { id: c.id, maxId }, pace, emit);
       for (const m of result.items) {
         c.items.push(m.code);
         const s = inSaved.get(m.code);

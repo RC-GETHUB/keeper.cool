@@ -56,6 +56,7 @@ const second = { username: "second.account", saved: otherPosts.map((p) => p.code
 const ig = {
   username: "test.account",
   failOnce: true,
+  busyOnce: true,
   saved: mainPosts.map((p) => p.code), // newest first
   collections: new Map([
     ["17900000000000001", { name: "Recipes", items: mainPosts.filter((_, i) => i % 3 === 0).map((p) => p.code) }],
@@ -101,6 +102,11 @@ async function mockInstagram(context) {
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
     if (info) return json(`{"user":{"username":"${info[1] === OTHER_ID ? second.username : ig.username}"},"status":"ok"}`);
     // The first time, fail part-way through the saved list, like Instagram dropping a session.
+    // And once, Instagram's own "572" (busy): Keeper should wait and retry by itself.
+    if (path === "/api/v1/feed/saved/posts/" && url.searchParams.get("max_id") === "40" && ig.busyOnce) {
+      ig.busyOnce = false;
+      return route.fulfill({ status: 572, contentType: "text/plain", body: "572" });
+    }
     if (path === "/api/v1/feed/saved/posts/" && url.searchParams.get("max_id") === "20" && ig.failOnce) {
       ig.failOnce = false;
       return route.fulfill({ status: 401, contentType: "application/json", body: '{"message":"login_required","status":"fail"}' });
@@ -197,6 +203,7 @@ async function run() {
     check(true, "45 saved posts imported, with nothing doubled after the retry");
     const retry = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).slice(savedCallsBefore);
     check(retry[0]?.endsWith("max_id=20"), "the retry picked up where it stopped instead of starting over");
+    check(retry.filter((c) => c.endsWith("max_id=40")).length === 2 && !ig.busyOnce, "a 572 from Instagram was retried automatically");
     check(await page.getByText("45 saved posts on Instagram (@test.account)").isVisible(), "shows which account it read");
     await page.getByText(/Cover images added \(45\)/).waitFor({ timeout: 60_000 });
     check(true, "45 cover images made");
