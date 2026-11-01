@@ -61,6 +61,7 @@ const ig = {
   collections: new Map([
     ["17900000000000001", { name: "Recipes", items: mainPosts.filter((_, i) => i % 3 === 0).map((p) => p.code) }],
     ["17900000000000002", { name: "Travel", items: mainPosts.filter((_, i) => i % 5 === 0).map((p) => p.code) }],
+    ["17900000000000003", { name: "Broken", items: [] }],
   ]),
   calls: [],
 };
@@ -111,10 +112,19 @@ async function mockInstagram(context) {
       ig.failOnce = false;
       return route.fulfill({ status: 401, contentType: "application/json", body: '{"message":"login_required","status":"fail"}' });
     }
+    // SHOT=path: slow the saved list down and screenshot the progress part-way.
+    if (process.env.SHOT && path === "/api/v1/feed/saved/posts/") await new Promise((r) => setTimeout(r, 1200));
     if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
     if (path === "/api/v1/collections/list/") {
-      const items = [...acct.collections].map(([id, c]) => `{"collection_id":${id},"collection_name":"${c.name}","collection_type":"MEDIA"}`);
+      const items = [
+        `{"collection_id":"ALL_MEDIA_AUTO_COLLECTION","collection_name":"All posts","collection_type":"ALL_MEDIA_AUTO_COLLECTION","collection_media_count":${acct.saved.length}}`,
+        ...[...acct.collections].map(([id, c]) => `{"collection_id":${id},"collection_name":"${c.name}","collection_type":"MEDIA"}`),
+      ];
       return json(`{"items":[${items.join(",")}],"more_available":false,"next_max_id":null,"status":"ok"}`);
+    }
+    // A collection Instagram won't open at either address.
+    if (path.startsWith("/api/v1/feed/collection/17900000000000003/")) {
+      return route.fulfill({ status: 404, contentType: "text/html", body: "<!DOCTYPE html><html><style>:root{--fds-black:#000}</style>Page not found</html>" });
     }
     let m = path.match(/^\/api\/v1\/feed\/collection\/(\d+)\/posts\/$/);
     if (m) return json(page(acct.collections.get(m[1]).items, url.searchParams.get("max_id"), 20));
@@ -189,6 +199,15 @@ async function run() {
     const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
     check(popup.url().startsWith("https://www.instagram.com/accounts/login"), "opens Instagram's own login page in a pop-up");
     await logIn();
+    if (process.env.SHOT) {
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: "Log in to Instagram" }).click().catch(() => {});
+      await page.getByTestId("import-count").waitFor();
+      await page.waitForTimeout(2000);
+      await page.getByRole("dialog").screenshot({ path: process.env.SHOT });
+      console.log("screenshot saved");
+      process.exit(0);
+    }
     // Instagram drops the session part-way: Keeper asks again, then carries on from where it stopped.
     await page.getByText(/Instagram said: 401 login_required/).waitFor({ timeout: 60_000 });
     check(true, "shows what Instagram said when it stops part-way");
@@ -207,12 +226,18 @@ async function run() {
     check(await page.getByText("45 saved posts on Instagram (@test.account)").isVisible(), "shows which account it read");
     await page.getByText(/Cover images added \(45\)/).waitFor({ timeout: 60_000 });
     check(true, "45 cover images made");
+    check(await page.getByText(/Instagram wouldn't open the collection “Broken”/).isVisible(), "a collection Instagram won't open is skipped and named, not fatal");
     await page.getByRole("button", { name: "Done" }).click();
+    check((await page.getByTestId("count-New").count()) === 0, "nothing is marked New after a first import that had to resume");
     check((await page.getByTestId("count-Recipes").textContent()) === "15", "Recipes has its 15 posts");
     check((await page.getByTestId("count-Travel").textContent()) === "9", "Travel has its 9 posts");
     const src = await page.locator("[role=listitem] img").first().getAttribute("src");
     check(src?.startsWith("data:image/jpeg;base64,"), "rows show stored cover images");
     check(await page.getByText(/Post number 0 with a caption/).first().isVisible(), "rows show the caption");
+    const firstRows = await page.evaluate(() =>
+      [...document.querySelectorAll("[role=listitem]")].sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)).map((r) => r.dataset.id),
+    );
+    check(JSON.stringify(firstRows.slice(0, 5)) === JSON.stringify(mainPosts.slice(0, 5).map((p) => p.code)), "the resumed import kept Instagram's order");
 
     console.log("Push a small change:");
     // Move the bottom post to the top.

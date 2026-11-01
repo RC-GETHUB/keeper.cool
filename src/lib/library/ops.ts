@@ -29,9 +29,16 @@ export interface MergeSummary {
  * place and collections. Nothing is removed: posts unsaved on Instagram since
  * the last import stay until the user removes them.
  */
-export function mergeImport(lib: Library, result: ImportResult): { library: Library; summary: MergeSummary } {
+export interface MergeOptions {
+  /** Flag what's added as New. Defaults to "yes, unless this is the first import". */
+  flagNew?: boolean;
+  /** Where new bookmarks go in the order (default: the top). An import that arrives page by page puts each page below the last. */
+  insertAt?: number;
+}
+
+export function mergeImport(lib: Library, result: ImportResult, options: MergeOptions = {}): { library: Library; summary: MergeSummary } {
   // Everything is new on the first import, so only later imports flag what they add.
-  const flagNew = lib.order.length > 0;
+  const flagNew = options.flagNew ?? lib.order.length > 0;
   const bookmarks = { ...lib.bookmarks };
   const fresh: string[] = [];
   let updated = 0;
@@ -93,7 +100,10 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
 
   const patch: Partial<Library> = {
     bookmarks,
-    order: [...fresh, ...lib.order],
+    order:
+      options.insertAt === undefined
+        ? [...fresh, ...lib.order]
+        : [...lib.order.slice(0, options.insertAt), ...fresh, ...lib.order.slice(options.insertAt)],
     collections,
     // Instagram's order as of this import, for "Restore Instagram's order".
     // New saves alone go on top of the order already known.
@@ -102,6 +112,10 @@ export function mergeImport(lib: Library, result: ImportResult): { library: Libr
       : result.bookmarks.map((b) => b.id),
   };
   if (result.collections.length) patch.instagramCollectionOrder = collectionOrder;
+  if (!result.partial) {
+    patch.lastImportAt = Date.now();
+    patch.importing = undefined;
+  }
   if (result.account) patch.instagram = result.account;
   if (result.sourceUsername && !lib.instagram && !lib.exportUsername) patch.exportUsername = result.sourceUsername;
   return {

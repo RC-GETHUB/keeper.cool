@@ -34,6 +34,8 @@ export interface InstagramRead {
   collections: InstagramCollection[];
   /** Only the posts saved since Keeper last looked (no collections). */
   partial?: boolean;
+  /** Things that didn't come through, to tell the user (e.g. a collection Instagram wouldn't open). */
+  warnings?: string[];
 }
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -73,7 +75,7 @@ export function fromInstagramRead(read: InstagramRead): ImportResult {
     })),
     mergedDuplicates,
     skipped: 0,
-    warnings: [],
+    warnings: read.warnings ?? [],
     account: read.account,
     partial: read.partial,
   };

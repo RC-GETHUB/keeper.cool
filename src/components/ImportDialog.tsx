@@ -2,11 +2,12 @@
 
 import { ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState, type ReadProgress } from "@/lib/extension";
+import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState } from "@/lib/extension";
 import { readExport } from "@/lib/import";
-import { fromInstagramRead } from "@/lib/instagram-read";
+import { fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
-import type { ImportResult } from "@/lib/types";
+import type { Bookmark, ImportResult, InstagramAccount } from "@/lib/types";
+import { ImportProgress, type LiveRead } from "./ImportProgress";
 import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
 
 interface Props {
@@ -16,28 +17,27 @@ interface Props {
   onClose: () => void;
   /** Merges the import into the right account's library (which may mean switching to it). */
   onImport: (result: ImportResult) => MergeSummary | Promise<MergeSummary>;
-  /** Cover images arrive after the import, in batches. */
+  /** Cover images arrive in batches, during and after the import. */
   onThumbs: (items: { code: string; data: string }[]) => void;
+  /**
+   * An import from Instagram arrives page by page: start (which picks the
+   * right account's library from the first page), each page, then the end.
+   */
+  onStreamStart: (account: InstagramAccount, firstIds: string[]) => Promise<void>;
+  onStreamPage: (bookmarks: Bookmark[], account: InstagramAccount) => void;
+  onStreamEnd: (result: ImportResult) => MergeSummary;
 }
 
 type Status =
   | { state: "idle" }
   | { state: "reading" }
-  | { state: "fetching"; progress: ReadProgress | null }
+  | { state: "fetching"; live: LiveRead }
   | { state: "login"; waiting: boolean; message?: string }
   | { state: "done"; result: ImportResult; summary: MergeSummary; source: "file" | "instagram" }
   | { state: "error"; message: string };
 
-function progressText(p: ReadProgress | null): string {
-  if (!p) return "Connecting to Instagram…";
-  if (p.phase === "account") return `Connected to ${p.account?.username ? `@${p.account.username}` : "Instagram"}. Reading saved posts…`;
-  if (p.phase === "saved") return `Found ${fmtCount.format(p.count ?? 0)} saved posts so far…`;
-  if (p.phase === "retry") return `Instagram is busy, so Keeper is waiting a moment. Trying again in ${Math.round((p.wait ?? 0) / 1000)} s…`;
-  if (p.phase === "collections") return `Reading collections: ${fmtCount.format(p.done ?? 0)} of ${fmtCount.format(p.total ?? 0)}${p.name ? ` (${p.name})` : ""}…`;
-  return "Finishing up…";
-}
 
-export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs }: Props) {
+export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs, onStreamStart, onStreamPage, onStreamEnd }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
   const [showExport, setShowExport] = useState(false);
@@ -57,19 +57,42 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
   };
 
   const fromInstagram = async () => {
-    setStatus({ state: "fetching", progress: null });
+    let live: LiveRead = { count: 0, total: null };
+    const update = (patch: Partial<LiveRead>) => {
+      live = { ...live, ...patch };
+      setStatus({ state: "fetching", live });
+    };
+    update({});
+    // Pages go into the library as they arrive, in order, after the first
+    // one has picked which account's library they belong in.
+    const pages: { chain: Promise<void> | null } = { chain: null };
+    const toBookmarks = (media: InstagramMedia[], account: InstagramAccount) =>
+      fromInstagramRead({ account, saved: media, collections: [] }).bookmarks;
     try {
       const read = await readInstagram((p) => {
         if (p.phase === "thumbs" || p.phase === "thumbs-done") {
           if (p.items?.length) onThumbs(p.items);
           setThumbs({ done: p.done ?? 0, total: p.total ?? 0, finished: p.phase === "thumbs-done" });
-        } else {
-          setStatus({ state: "fetching", progress: p });
+        } else if (p.phase === "account" && p.account) {
+          update({ account: p.account });
+        } else if (p.phase === "page" && p.media && live.account) {
+          const account = live.account;
+          const bookmarks = toBookmarks(p.media, account);
+          pages.chain = (pages.chain ?? onStreamStart(account, bookmarks.map((b) => b.id))).then(() => onStreamPage(bookmarks, account));
+        } else if (p.phase === "saved") {
+          update({ count: p.count ?? live.count, total: p.total ?? live.total, retryWait: undefined });
+        } else if (p.phase === "collections") {
+          update({ collections: { done: p.done ?? 0, total: p.total ?? 0, name: p.name }, retryWait: undefined });
+        } else if (p.phase === "retry") {
+          update({ retryWait: p.wait });
         }
       });
+      await (pages.chain ?? onStreamStart(read.account, []));
       const result = fromInstagramRead(read);
-      setStatus({ state: "done", result, summary: await onImport(result), source: "instagram" });
+      setStatus({ state: "done", result, summary: onStreamEnd(result), source: "instagram" });
     } catch (e) {
+      // Whatever arrived before the problem stays in the library, and a retry carries on from there.
+      await pages.chain?.catch(() => undefined);
       if (e instanceof ExtensionError && e.code === "login") {
         setStatus({ state: "login", waiting: false, message: e.message });
         return;
@@ -181,9 +204,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
                   </div>
                 </div>
                 {status.state === "fetching" ? (
-                  <p className="flex items-center gap-2 text-sm" role="status">
-                    <Loader2 className="size-4 animate-spin text-accent" /> {progressText(status.progress)}
-                  </p>
+                  <ImportProgress live={status.live} />
                 ) : status.state === "login" ? (
                   <div className="space-y-2 text-sm">
                     <p>

@@ -32,7 +32,8 @@
   function classify(status, json, text) {
     const message = (json && (json.message || json.feedback_message)) || "";
     const lower = `${message} ${text.slice(0, 2000)}`.toLowerCase();
-    const said = json ? message : text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    // An HTML reply is an error page full of styles and scripts: say so rather than quote it.
+    const said = json ? message : /<html|<!doctype/i.test(text) ? "(Instagram sent an error page)" : text.trim().slice(0, 120);
     const detail = `${status}${said ? ` ${said}` : ""}`;
     if (status === 429 || (json && json.spam) || /feedback_required|wait a few minutes|try again later|rate limit/.test(lower)) {
       return problem("blocked", "Instagram asked Keeper to slow down. Wait a few hours, then try again.", { status, detail });
@@ -117,16 +118,37 @@
     savedPage: async ({ maxId }) => mediaPage(await api(`/api/v1/feed/saved/posts/${query({ max_id: maxId })}`)),
 
     collectionsPage: async ({ maxId }) => {
+      // "All posts" (ALL_MEDIA_AUTO_COLLECTION) is asked for too: its count is
+      // the total number of saved posts, so Keeper can show how many are left.
       const json = await api(
-        `/api/v1/collections/list/${query({ collection_types: '["MEDIA"]', include_public_only: "0", max_id: maxId })}`,
+        `/api/v1/collections/list/${query({
+          collection_types: '["ALL_MEDIA_AUTO_COLLECTION","MEDIA"]',
+          include_public_only: "0",
+          max_id: maxId,
+        })}`,
       );
+      const all = (json.items || []).find((c) => c.collection_type === "ALL_MEDIA_AUTO_COLLECTION");
+      const total = all && Number(all.collection_media_count);
       const items = (json.items || [])
         .filter((c) => !c.collection_type || c.collection_type === "MEDIA")
         .map((c) => ({ id: String(c.collection_id), name: String(c.collection_name || "Untitled collection") }));
-      return { items, more: Boolean(json.more_available && json.next_max_id), next: json.next_max_id || null };
+      return {
+        items,
+        total: Number.isFinite(total) && total > 0 ? total : null,
+        more: Boolean(json.more_available && json.next_max_id),
+        next: json.next_max_id || null,
+      };
     },
 
-    collectionPage: async ({ id, maxId }) => mediaPage(await api(`/api/v1/feed/collection/${id}/posts/${query({ max_id: maxId })}`)),
+    collectionPage: async ({ id, maxId }) => {
+      try {
+        return mediaPage(await api(`/api/v1/feed/collection/${id}/posts/${query({ max_id: maxId })}`));
+      } catch (error) {
+        // Some collections only answer at the older address.
+        if (!error || error.code !== "not_found") throw error;
+        return mediaPage(await api(`/api/v1/feed/collection/${id}/${query({ max_id: maxId })}`));
+      }
+    },
 
     save: async ({ mediaId }) => {
       await api(`/api/v1/web/save/${mediaId}/save/`, { method: "POST", form: {} });

@@ -7,9 +7,12 @@
 // sign Instagram is unhappy. Keep PACE in step with src/lib/push.ts.
 
 const PACE = {
-  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 1_500, pageMax: 3_000, retries: [5_000, 15_000, 45_000, 90_000] },
+  real: { postMin: 40_000, postMax: 75_000, gapMin: 2_500, gapMax: 5_000, perHour: 120, perDay: 500, pageMin: 1_500, pageMax: 3_000, retries: [5_000, 15_000, 45_000, 90_000],
+    // Full imports adapt: start at a page a second, slow down when Instagram
+    // pushes back, and speed up again after a calm stretch.
+    pageStart: 1_000, pageFloor: 700, pageCeil: 8_000 },
   // Only for Keeper's automated tests on localhost.
-  test: { postMin: 200, postMax: 400, gapMin: 50, gapMax: 100, perHour: Infinity, perDay: Infinity, pageMin: 10, pageMax: 20, retries: [50, 50, 50, 50] },
+  test: { postMin: 200, postMax: 400, gapMin: 50, gapMax: 100, perHour: Infinity, perDay: Infinity, pageMin: 10, pageMax: 20, retries: [50, 50, 50, 50], pageStart: 10, pageFloor: 5, pageCeil: 50 },
 };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -87,13 +90,14 @@ async function ig(op, args) {
  * A read that waits and tries again when Instagram is busy (5xx, its 572)
  * or the tab hiccups, instead of stopping the whole import.
  */
-async function igRead(op, args, pace, emit) {
+async function igRead(op, args, pace, emit, onRetry) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await ig(op, args);
     } catch (error) {
       const retryable = error && (error.code === "busy" || error.code === "no_tab" || error.code === "unknown");
       if (!retryable || attempt >= pace.retries.length) throw error;
+      if (onRetry) onRetry();
       const wait = pace.retries[attempt];
       if (emit) emit({ phase: "retry", wait, detail: error.detail || error.message });
       await sleep(wait);
@@ -121,35 +125,60 @@ async function readNewSaves(pace, known) {
   return { account, saved, collections: [], partial: true };
 }
 
-async function readInstagram(pace, emit) {
+async function readInstagram(pace, emit, thumbs) {
   const account = await ig("whoami");
   emit({ phase: "account", account });
+
+  // The time between pages adapts: it doubles whenever Instagram pushes back
+  // and eases off again after a calm stretch.
+  let gap = pace.pageStart;
+  let calm = 0;
+  const slowDown = () => {
+    gap = Math.min(pace.pageCeil, gap * 2);
+    calm = 0;
+  };
+  const rest = () => sleep(between(gap * 0.8, gap * 1.2));
+  const calmer = () => {
+    if (++calm >= 8) gap = Math.max(pace.pageFloor, gap * 0.85);
+  };
+
+  // The collection list comes first: it also says how many posts are saved
+  // in all, so progress can show how many are left.
+  const collections = [];
+  let total = null;
+  let maxId = null;
+  for (let page = 0; page < 200; page++) {
+    const result = await igRead("collectionsPage", { maxId }, pace, emit, slowDown);
+    collections.push(...result.items);
+    if (result.total) total = result.total;
+    if (!result.more) break;
+    maxId = result.next;
+    await rest();
+  }
 
   // A read that stopped part-way (logged out, slowed down, Chrome closed)
   // carries on from where it got to, for up to six hours.
   const stored = (await chrome.storage.local.get(READ_KEY))[READ_KEY];
   const resume = stored && stored.userId === account.userId && stored.maxId && Date.now() - stored.at < 6 * HOUR;
   const saved = resume ? stored.saved : [];
-  let maxId = resume ? stored.maxId : null;
-  if (resume) emit({ phase: "saved", count: saved.length });
+  maxId = resume ? stored.maxId : null;
+  if (saved.length) {
+    emit({ phase: "page", media: saved });
+    if (thumbs) thumbs.add(saved);
+  }
+  emit({ phase: "saved", count: saved.length, total });
   for (let page = 0; page < 5_000; page++) {
-    const result = await igRead("savedPage", { maxId }, pace, emit);
+    await rest();
+    const result = await igRead("savedPage", { maxId }, pace, emit, slowDown);
     saved.push(...result.items);
-    emit({ phase: "saved", count: saved.length });
+    // Each page goes to Keeper straight away, so the library fills in while it reads.
+    emit({ phase: "page", media: result.items });
+    if (thumbs) thumbs.add(result.items);
+    emit({ phase: "saved", count: saved.length, total: total && Math.max(total, saved.length), gap });
+    calmer();
     if (!result.more) break;
     maxId = result.next;
     if (page % 3 === 0) await chrome.storage.local.set({ [READ_KEY]: { userId: account.userId, saved, maxId, at: Date.now() } });
-    await sleep(between(pace.pageMin, pace.pageMax));
-  }
-
-  const collections = [];
-  maxId = null;
-  for (let page = 0; page < 200; page++) {
-    const result = await igRead("collectionsPage", { maxId }, pace, emit);
-    collections.push(...result.items);
-    if (!result.more) break;
-    maxId = result.next;
-    await sleep(between(pace.pageMin, pace.pageMax));
   }
 
   // When saved posts carry their collection ids, membership is already
@@ -166,25 +195,39 @@ async function readInstagram(pace, emit) {
   const inSaved = new Map(saved.map((m) => [m.code, m]));
   for (const m of saved) m.collectionIds = [];
   const filled = [];
+  const unreadable = [];
   for (let i = 0; i < collections.length; i++) {
     const c = { ...collections[i], items: [] };
     maxId = null;
-    for (let page = 0; page < 2_000; page++) {
-      await sleep(between(pace.pageMin, pace.pageMax));
-      const result = await igRead("collectionPage", { id: c.id, maxId }, pace, emit);
-      for (const m of result.items) {
-        c.items.push(m.code);
-        const s = inSaved.get(m.code);
-        if (s && !s.collectionIds.includes(c.id)) s.collectionIds.push(c.id);
+    try {
+      for (let page = 0; page < 2_000; page++) {
+        await rest();
+        const result = await igRead("collectionPage", { id: c.id, maxId }, pace, emit, slowDown);
+        for (const m of result.items) {
+          c.items.push(m.code);
+          const s = inSaved.get(m.code);
+          if (s && !s.collectionIds.includes(c.id)) s.collectionIds.push(c.id);
+        }
+        calmer();
+        if (!result.more) break;
+        maxId = result.next;
       }
-      if (!result.more) break;
-      maxId = result.next;
+    } catch (error) {
+      // Logged out or told to slow down: stop, and a retry picks up from here.
+      // Anything else wrong with one collection shouldn't sink the import.
+      if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
+      unreadable.push(c.name);
     }
     filled.push(c);
     emit({ phase: "collections", done: i + 1, total: collections.length, name: c.name });
   }
   await chrome.storage.local.remove(READ_KEY);
-  return { account, saved, collections: filled };
+  const warnings = unreadable.length
+    ? [
+        `Instagram wouldn't open ${unreadable.length === 1 ? "the collection" : `${unreadable.length} collections`} ${unreadable.map((n) => `“${n}”`).join(", ")}, so ${unreadable.length === 1 ? "it's" : "they're"} empty in Keeper for now. The posts themselves were imported.`,
+      ]
+    : [];
+  return { account, saved, collections: filled, warnings };
 }
 
 // ---------------------------------------------------------------- Cover images
@@ -213,30 +256,66 @@ async function makeThumb(url) {
   return `data:image/jpeg;base64,${base64(await blob.arrayBuffer())}`;
 }
 
-async function makeThumbs(items, emit) {
-  const queue = items.filter((m) => m.image);
-  let index = 0;
+/**
+ * Makes cover images as posts arrive (six at a time), sending them to Keeper
+ * in small batches, so pictures fill in while the import is still reading.
+ */
+function thumbPipeline(emit) {
+  const queue = [];
+  let next = 0;
   let done = 0;
+  let total = 0;
+  let running = 0;
+  let closed = false;
   let batch = [];
+  let finished = null;
   const flush = () => {
-    if (batch.length) emit({ phase: "thumbs", done, total: queue.length, items: batch });
+    if (batch.length) emit({ phase: "thumbs", done, total, items: batch });
     batch = [];
   };
-  async function worker() {
-    while (index < queue.length) {
-      const m = queue[index++];
-      try {
-        batch.push({ code: m.code, data: await makeThumb(m.image) });
-      } catch {
-        // A missing cover just keeps the coloured tile.
-      }
-      done++;
-      if (batch.length >= 60) flush();
+  const settle = () => {
+    if (closed && done === total && finished) {
+      flush();
+      emit({ phase: "thumbs-done", done, total });
+      finished();
+      finished = null;
     }
-  }
-  await Promise.all(Array.from({ length: 6 }, worker));
-  flush();
-  emit({ phase: "thumbs-done", done, total: queue.length });
+  };
+  const pump = () => {
+    while (running < 6 && next < queue.length) {
+      const m = queue[next++];
+      running++;
+      makeThumb(m.image)
+        .then(
+          (data) => batch.push({ code: m.code, data }),
+          () => {
+            // A missing cover just keeps the coloured tile.
+          },
+        )
+        .finally(() => {
+          done++;
+          running--;
+          if (batch.length >= 24) flush();
+          pump();
+          settle();
+        });
+    }
+  };
+  return {
+    add(items) {
+      const withImages = items.filter((m) => m.image);
+      queue.push(...withImages);
+      total += withImages.length;
+      pump();
+    },
+    finish() {
+      closed = true;
+      return new Promise((resolve) => {
+        finished = resolve;
+        settle();
+      });
+    },
+  };
 }
 
 // ---------------------------------------------------------------- Pushing
@@ -528,14 +607,18 @@ async function handle(port, message) {
         result = await ig("whoami");
         break;
       case "read": {
-        const read = Array.isArray(payload.known)
-          ? await readNewSaves(paceFor(pace), payload.known)
-          : await readInstagram(paceFor(pace), (progress) => reply({ event: "progress", ...progress }));
-        // Hand over the list now; cover images follow as progress events.
-        reply({ ok: true, result: read });
-        if (payload.thumbnails !== false) {
-          await makeThumbs(read.saved, (progress) => reply({ event: "progress", ...progress }));
+        const emit = (progress) => reply({ event: "progress", ...progress });
+        const thumbs = payload.thumbnails !== false ? thumbPipeline(emit) : null;
+        let read;
+        if (Array.isArray(payload.known)) {
+          read = await readNewSaves(paceFor(pace), payload.known);
+          if (thumbs) thumbs.add(read.saved);
+        } else {
+          read = await readInstagram(paceFor(pace), emit, thumbs);
         }
+        // Hand over the list now; the last cover images follow as progress events.
+        reply({ ok: true, result: read });
+        if (thumbs) await thumbs.finish();
         return;
       }
       case "push:start":

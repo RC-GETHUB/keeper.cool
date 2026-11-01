@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { InstagramRead } from "./instagram-read";
+import type { InstagramMedia, InstagramRead } from "./instagram-read";
 import type { PushStep } from "./push";
 import type { InstagramAccount } from "./types";
 
@@ -23,7 +23,9 @@ export interface JobSummary {
 }
 
 export interface ReadProgress {
-  phase: "account" | "saved" | "collections" | "thumbs" | "thumbs-done" | "retry";
+  phase: "account" | "saved" | "page" | "collections" | "thumbs" | "thumbs-done" | "retry";
+  /** For "page": the posts on it. */
+  media?: InstagramMedia[];
   /** For "retry": how long until the next try, in ms. */
   wait?: number;
   account?: InstagramAccount;

@@ -53,6 +53,12 @@ export interface Library {
   instagramOrder?: string[];
   /** Collection ids in Instagram's order at the last import. */
   instagramCollectionOrder?: string[];
+  /** When an import last finished. */
+  lastImportAt?: number;
+  /** An import from Instagram is part-way through (it stopped, and the next try carries on). */
+  importing?: true;
+  /** How many bookmarks there were when that import began, to report what it added in all. */
+  importBase?: number;
   updatedAt: number;
 }
 

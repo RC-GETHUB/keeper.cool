@@ -46,7 +46,7 @@ import { mergeNewSaves } from "@/lib/instagram-read";
 import { describe, entryLabel, newLibraryId, routeImport, type LibraryIndex } from "@/lib/libraries";
 import { deleteLibrary, loadLibrary, openLibraries, saveIndex, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
-import type { ImportResult, Library } from "@/lib/types";
+import type { Bookmark, ImportResult, InstagramAccount, Library } from "@/lib/types";
 import type { MergeSummary } from "@/lib/library/ops";
 import { AccountMenu } from "./AccountMenu";
 import { BookmarkList } from "./BookmarkList";
@@ -181,6 +181,8 @@ export function App() {
   const libRef = useRef(lib);
   libRef.current = lib;
   const refreshed = useRef(false);
+  // The import arriving page by page (see streamStart).
+  const stream = useRef<{ flagNew: boolean; inserted: number; added: number } | null>(null);
   const rememberThumbs = (items: { code: string; data: string }[]) => {
     for (const { code, data } of items) thumbs.current.set(code, data);
     setLib((prev) => prev && applyThumbnails(prev, items));
@@ -413,6 +415,54 @@ export function App() {
     if (elsewhere) setLib(library);
     else commit(library);
     return summary;
+  };
+
+  // An import from the extension arrives page by page, so the library fills
+  // in while it reads. The whole import is one Undo step.
+
+  const streamStart = async (account: InstagramAccount, firstIds: string[]) => {
+    const current = libRef.current!;
+    const route = routeImport(index, current, { userId: account.userId, username: account.username }, firstIds);
+    let target = current;
+    if (route.kind === "switch") target = await switchLibrary(route.id);
+    else if (route.kind === "ask" && (await askWhere(account.username ?? "another account")) === "new") target = await addLibrary();
+    else setHistory((h) => [...h.slice(-(HISTORY - 1)), current]);
+    if (!target.importing) target = { ...target, importBase: target.order.length };
+    libRef.current = target;
+    // Flag New only if an earlier import finished; a library still part-way
+    // through its first import (it stopped and this carries on) isn't "new".
+    // A resumed import's earlier pages sit at the top; new pages go below them.
+    const alreadyIn = target.order.length - (target.importBase ?? target.order.length);
+    stream.current = {
+      flagNew: Boolean(target.lastImportAt) || (target.order.length > 0 && !target.importing),
+      inserted: Math.max(0, alreadyIn),
+      added: 0,
+    };
+  };
+
+  const streamPage = (bookmarks: Bookmark[], account: InstagramAccount) => {
+    const session = stream.current;
+    const current = libRef.current;
+    if (!session || !current) return;
+    const page: ImportResult = { bookmarks, collections: [], mergedDuplicates: 0, skipped: 0, warnings: [], account, partial: true };
+    const merged = mergeImport(current, page, { flagNew: session.flagNew, insertAt: session.inserted });
+    const library: Library = merged.library.importing ? merged.library : { ...merged.library, importing: true };
+    session.inserted += merged.summary.added;
+    session.added += merged.summary.added;
+    libRef.current = library;
+    setLib(library);
+  };
+
+  const streamEnd = (result: ImportResult): MergeSummary => {
+    const session = stream.current;
+    stream.current = null;
+    const merged = mergeImport(libRef.current!, result, { flagNew: session?.flagNew });
+    // Counted from where the import began, including any earlier attempt that stopped part-way.
+    const { importBase, ...library } = merged.library;
+    const added = importBase !== undefined ? library.order.length - importBase : (session?.added ?? 0) + merged.summary.added;
+    libRef.current = library;
+    setLib(library);
+    return { ...merged.summary, added };
   };
 
   /** Copies bookmarks into another account's library, to be saved there by its next Sync. */
@@ -822,6 +872,9 @@ export function App() {
           }}
           onImport={importResult}
           onThumbs={rememberThumbs}
+          onStreamStart={streamStart}
+          onStreamPage={streamPage}
+          onStreamEnd={streamEnd}
         />
       )}
       {pushOpen && <PushDialog lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}
