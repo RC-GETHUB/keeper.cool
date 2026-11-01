@@ -45,6 +45,7 @@ type Listener = (message: Record<string, unknown>) => void;
 
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; onEvent?: Listener }>();
 const jobListeners = new Set<(job: JobSummary | null) => void>();
+const staleListeners = new Set<() => void>();
 let listening = false;
 
 function listen() {
@@ -54,6 +55,15 @@ function listen() {
     if (event.source !== window || event.origin !== location.origin) return;
     const data = event.data as Record<string, unknown> | null;
     if (!data || data.keeper !== "extension") return;
+    if (data.event === "stale") {
+      // This page was open when the extension was updated: nothing will answer until it reloads.
+      for (const [id, entry] of pending) {
+        pending.delete(id);
+        entry.reject(new ExtensionError("stale", "The Keeper extension was updated. Reload this page to reconnect."));
+      }
+      for (const fn of staleListeners) fn();
+      return;
+    }
     if (data.event === "job") {
       for (const fn of jobListeners) fn(data.job as JobSummary | null);
       return;
@@ -90,7 +100,8 @@ export function installedVersion(): string | null {
 }
 
 export interface ExtensionState {
-  status: "checking" | "missing" | "ready";
+  /** "stale": installed, but updated since this page loaded, so the page must reload. */
+  status: "checking" | "missing" | "ready" | "stale";
   version: string | null;
   job: JobSummary | null;
 }
@@ -103,7 +114,9 @@ export function useExtension(): ExtensionState {
     listen();
     let alive = true;
     const onJob = (job: JobSummary | null) => alive && setState((s) => ({ ...s, job }));
+    const onStale = () => alive && setState((s) => ({ ...s, status: "stale" }));
     jobListeners.add(onJob);
+    staleListeners.add(onStale);
 
     const check = () => {
       if (!installedVersion()) return false;
@@ -131,6 +144,7 @@ export function useExtension(): ExtensionState {
     return () => {
       alive = false;
       jobListeners.delete(onJob);
+      staleListeners.delete(onStale);
       clearInterval(timer);
       clearInterval(poll);
     };

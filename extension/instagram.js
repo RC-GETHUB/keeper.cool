@@ -3,10 +3,20 @@
 // bookmark icon, with the user's own session. The background script decides
 // what to do and how fast; this file only knows how to talk to Instagram.
 (() => {
-  if (globalThis.__keeperInstagram) return;
-  globalThis.__keeperInstagram = true;
+  // Run once per page, but replace a copy left behind by an earlier version of
+  // the extension (it can no longer talk to the extension, so it's dead).
+  const alive = () => {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  };
+  if (globalThis.__keeperInstagram && globalThis.__keeperInstagram()) return;
+  globalThis.__keeperInstagram = alive;
 
   const APP_ID = "936619743392459"; // Instagram's own web app id, sent by instagram.com itself.
+  let wwwClaim = "0";
   const { liteMedia } = globalThis.KeeperMedia;
 
   function cookie(name) {
@@ -40,7 +50,15 @@
   }
 
   async function api(path, { method = "GET", form } = {}) {
-    const headers = { "X-IG-App-ID": APP_ID, "X-Requested-With": "XMLHttpRequest", Accept: "*/*" };
+    // The same identifying headers instagram.com sends with its own requests.
+    // The "claim" is a token Instagram hands back on each reply and expects on the next request.
+    const headers = {
+      "X-IG-App-ID": APP_ID,
+      "X-IG-WWW-Claim": wwwClaim !== "0" ? wwwClaim : sessionStorage.getItem("www-claim-v2") || "0",
+      "X-ASBD-ID": "129477",
+      "X-Requested-With": "XMLHttpRequest",
+      Accept: "*/*",
+    };
     const csrf = cookie("csrftoken");
     if (csrf) headers["X-CSRFToken"] = csrf;
     let body;
@@ -49,6 +67,8 @@
       body = new URLSearchParams(form).toString();
     }
     const res = await fetch(`https://www.instagram.com${path}`, { method, headers, body, credentials: "include" });
+    const claim = res.headers.get("x-ig-set-www-claim");
+    if (claim) wwwClaim = claim;
     const text = await res.text();
     let json = null;
     try {

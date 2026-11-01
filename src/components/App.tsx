@@ -538,6 +538,14 @@ export function App() {
         </div>
       </header>
 
+      {extension.status === "stale" && (
+        <div role="alert" className="flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">
+          The Keeper extension was updated. Reload this page to reconnect.
+          <button type="button" onClick={() => location.reload()} className="rounded-md bg-amber-900 px-2.5 py-1 font-medium text-white dark:bg-amber-200 dark:text-amber-950">
+            Reload
+          </button>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
         {drawer && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setDrawer(false)} />}
         <aside
