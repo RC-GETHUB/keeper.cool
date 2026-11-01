@@ -45,7 +45,7 @@ export default function ExtensionPage() {
           Click <b>Load unpacked</b> and choose the <span className={code}>keeper-extension</span> folder.
         </li>
         <li>
-          Click the puzzle-piece icon in Chrome&apos;s toolbar and pin <b>Keeper for Instagram</b>, so you can see when it&apos;s working.
+          Click the puzzle-piece icon in Chrome&apos;s toolbar and pin <b>Keeper – Saved Post Organizer</b>, so you can see when it&apos;s working.
         </li>
         <li>
           Make sure you&apos;re logged into Instagram at <span className={code}>instagram.com</span> in the same Chrome, then{" "}

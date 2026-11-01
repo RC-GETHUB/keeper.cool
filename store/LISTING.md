@@ -1,4 +1,4 @@
-# Chrome Web Store listing: Keeper for Instagram
+# Chrome Web Store listing: Keeper – Saved Post Organizer
 
 Everything to paste into the Chrome Web Store developer dashboard
 (https://chrome.google.com/webstore/devconsole). Upload
@@ -7,10 +7,12 @@ https://keeper-cool.vercel.app/keeper-extension.zip).
 
 ## Store listing
 
-**Name:** Keeper for Instagram
+**Name:** Keeper – Saved Post Organizer
+
+(No "Instagram" in the name: stores reject names that use another company's trademark. The description says it works with Instagram.)
 
 **Summary (max 132 characters):**
-Sort, rename and tidy your Instagram saved posts in keeper.cool, then sync your new order back to Instagram.
+Sort, rename and tidy your Instagram saved posts in keeper.cool, then sync your new order back. Works with Instagram.
 
 **Category:** Productivity · **Language:** English
 
