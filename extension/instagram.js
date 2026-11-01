@@ -120,13 +120,16 @@
     collectionsPage: async ({ maxId }) => {
       // "All posts" (ALL_MEDIA_AUTO_COLLECTION) is asked for too: its count is
       // the total number of saved posts, so Keeper can show how many are left.
-      const json = await api(
-        `/api/v1/collections/list/${query({
-          collection_types: '["ALL_MEDIA_AUTO_COLLECTION","MEDIA"]',
-          include_public_only: "0",
-          max_id: maxId,
-        })}`,
-      );
+      const list = (types) =>
+        api(`/api/v1/collections/list/${query({ collection_types: types, include_public_only: "0", max_id: maxId })}`);
+      let json;
+      try {
+        json = await list('["ALL_MEDIA_AUTO_COLLECTION","MEDIA"]');
+      } catch (error) {
+        // Some accounts refuse the "All posts" entry; ask the plain way (no total then).
+        if (!error || (error.code !== "not_found" && error.code !== "unknown")) throw error;
+        json = await list('["MEDIA"]');
+      }
       const all = (json.items || []).find((c) => c.collection_type === "ALL_MEDIA_AUTO_COLLECTION");
       const total = all && Number(all.collection_media_count);
       const items = (json.items || [])

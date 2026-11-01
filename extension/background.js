@@ -145,15 +145,24 @@ async function readInstagram(pace, emit, thumbs) {
   // The collection list comes first: it also says how many posts are saved
   // in all, so progress can show how many are left.
   const collections = [];
+  const warnings = [];
   let total = null;
   let maxId = null;
-  for (let page = 0; page < 200; page++) {
-    const result = await igRead("collectionsPage", { maxId }, pace, emit, slowDown);
-    collections.push(...result.items);
-    if (result.total) total = result.total;
-    if (!result.more) break;
-    maxId = result.next;
-    await rest();
+  try {
+    for (let page = 0; page < 200; page++) {
+      const result = await igRead("collectionsPage", { maxId }, pace, emit, slowDown);
+      collections.push(...result.items);
+      if (result.total) total = result.total;
+      if (!result.more) break;
+      maxId = result.next;
+      await rest();
+    }
+  } catch (error) {
+    // Without the collection list the saved posts still come in; only stop
+    // for the things that would stop those too.
+    if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
+    collections.length = 0;
+    warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
   }
 
   // A read that stopped part-way (logged out, slowed down, Chrome closed)
@@ -189,7 +198,7 @@ async function readInstagram(pace, emit, thumbs) {
     for (const m of saved) for (const id of m.collectionIds) byId.get(id) && byId.get(id).items.push(m.code);
     emit({ phase: "collections", done: collections.length, total: collections.length });
     await chrome.storage.local.remove(READ_KEY);
-    return { account, saved, collections: [...byId.values()] };
+    return { account, saved, collections: [...byId.values()], warnings };
   }
 
   const inSaved = new Map(saved.map((m) => [m.code, m]));
@@ -222,11 +231,11 @@ async function readInstagram(pace, emit, thumbs) {
     emit({ phase: "collections", done: i + 1, total: collections.length, name: c.name });
   }
   await chrome.storage.local.remove(READ_KEY);
-  const warnings = unreadable.length
-    ? [
+  if (unreadable.length) {
+    warnings.push(
         `Instagram wouldn't open ${unreadable.length === 1 ? "the collection" : `${unreadable.length} collections`} ${unreadable.map((n) => `“${n}”`).join(", ")}, so ${unreadable.length === 1 ? "it's" : "they're"} empty in Keeper for now. The posts themselves were imported.`,
-      ]
-    : [];
+    );
+  }
   return { account, saved, collections: filled, warnings };
 }
 

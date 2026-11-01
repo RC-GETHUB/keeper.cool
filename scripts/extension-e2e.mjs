@@ -115,6 +115,10 @@ async function mockInstagram(context) {
     // SHOT=path: slow the saved list down and screenshot the progress part-way.
     if (process.env.SHOT && path === "/api/v1/feed/saved/posts/") await new Promise((r) => setTimeout(r, 1200));
     if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
+    // The second account refuses the "All posts" entry, like some real ones do.
+    if (path === "/api/v1/collections/list/" && acct === second && url.searchParams.get("collection_types")?.includes("ALL_MEDIA")) {
+      return route.fulfill({ status: 404, contentType: "text/html", body: "<!DOCTYPE html><html>Page not found</html>" });
+    }
     if (path === "/api/v1/collections/list/") {
       const items = [
         `{"collection_id":"ALL_MEDIA_AUTO_COLLECTION","collection_name":"All posts","collection_type":"ALL_MEDIA_AUTO_COLLECTION","collection_media_count":${acct.saved.length}}`,
@@ -306,7 +310,7 @@ async function run() {
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
     await page.getByRole("button", { name: "New library for @second.account" }).click({ timeout: 30_000 });
     await page.getByText(/Added 5 bookmarks/).waitFor({ timeout: 30_000 });
-    check(true, "imports another account into its own library, after asking");
+    check(true, "imports another account into its own library, after asking (its collection list needed the fallback)");
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
