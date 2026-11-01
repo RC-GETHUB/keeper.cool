@@ -109,6 +109,104 @@ async function igRead(op, args, pace, emit, onRetry) {
  * Only what's been saved since Keeper last looked: reads from the top of the
  * Saved list until it reaches a post Keeper already has (usually one request).
  */
+// ---------------------------------------------------------------- Saved page
+
+/**
+ * Collections as the user's own Saved page shows them: the page is opened in
+ * a background tab, its collection links are read (scrolling until no more
+ * appear), and the tab is closed. Used when Instagram won't hand over the
+ * collection list directly.
+ */
+async function collectionsFromSavedPage(username) {
+  const url = `https://www.instagram.com/${username}/saved/`;
+  // Use the Saved page if it's already open; otherwise open one and close it after.
+  const [open] = await chrome.tabs.query({ url: `${url}*` });
+  const tab = open || (await chrome.tabs.create({ url, active: false }));
+  try {
+    // A new tab reports "loaded" for its blank page first; wait for Instagram's page itself.
+    for (let i = 0; i < 60; i++) {
+      const current = await chrome.tabs.get(tab.id);
+      if (current.status === "complete" && (current.url || "").startsWith("https://www.instagram.com/")) break;
+      await sleep(500);
+    }
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async () => {
+        const found = new Map();
+        const read = () => {
+          for (const link of document.querySelectorAll('a[href*="/saved/"]')) {
+            // Collection links look like /<username>/saved/<name-slug>/<collection id>/
+            const match = (link.getAttribute("href") || "").match(/\/saved\/([^/?#]+)\/(\d{5,})\/?(?:[?#]|$)/);
+            if (!match || found.has(match[2])) continue;
+            const text = (link.innerText || link.getAttribute("aria-label") || "")
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)[0];
+            found.set(match[2], text || decodeURIComponent(match[1]).replace(/-/g, " "));
+          }
+        };
+        // Wait for the page to draw its collections, then scroll until no new ones load.
+        let quiet = 0;
+        let last = -1;
+        for (let i = 0; i < 160; i++) {
+          read();
+          if (found.size > 0 && found.size === last) quiet++;
+          else quiet = 0;
+          last = found.size;
+          if (quiet >= 6 || (found.size === 0 && i >= 40)) break;
+          window.scrollTo(0, document.documentElement.scrollHeight);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        return [...found].map(([id, name]) => ({ id, name }));
+      },
+    });
+    return (injection && injection.result) || [];
+  } finally {
+    if (!open) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+/**
+ * A quick report on which ways of reading Instagram work for this account,
+ * for when something doesn't come through. Reads only.
+ */
+async function diagnose() {
+  const report = { extension: chrome.runtime.getManifest().version, at: new Date().toISOString() };
+  const step = async (name, run) => {
+    try {
+      report[name] = await run();
+    } catch (error) {
+      report[name] = { failed: (error && (error.code || error.message)) || String(error), said: (error && error.detail) || null };
+    }
+  };
+  let account = null;
+  let fromPage = [];
+  await step("account", async () => {
+    account = await ig("whoami");
+    return { username: account.username, hasId: Boolean(account.userId) };
+  });
+  await step("savedList", async () => {
+    const page = await ig("savedPage", { maxId: null });
+    const withIds = page.items.filter((m) => Array.isArray(m.collectionIds));
+    return { posts: page.items.length, more: page.more, postsListingTheirCollections: withIds.length, inACollection: withIds.filter((m) => m.collectionIds.length).length };
+  });
+  await step("collectionList", async () => {
+    const page = await ig("collectionsPage", { maxId: null });
+    return { collections: page.items.length, total: page.total, first: page.items.slice(0, 3).map((c) => c.name) };
+  });
+  await step("savedPage", async () => {
+    fromPage = account && account.username ? await collectionsFromSavedPage(account.username) : [];
+    return { collections: fromPage.length, first: fromPage.slice(0, 3).map((c) => c.name) };
+  });
+  if (fromPage[0]) {
+    await step("collectionPosts", async () => {
+      const page = await ig("collectionPage", { id: fromPage[0].id, maxId: null });
+      return { collection: fromPage[0].name, posts: page.items.length, more: page.more };
+    });
+  }
+  return report;
+}
+
 async function readNewSaves(pace, known) {
   const account = await ig("whoami");
   const knownSet = new Set(known);
@@ -162,7 +260,15 @@ async function readInstagram(pace, emit, thumbs) {
     // for the things that would stop those too.
     if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
     collections.length = 0;
-    warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
+    // Some accounts don't get the list at all: read the collections off the Saved page instead.
+    try {
+      if (account.username) collections.push(...(await collectionsFromSavedPage(account.username)));
+    } catch {
+      // Falls through to the note below.
+    }
+    if (!collections.length) {
+      warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
+    }
   }
 
   // A read that stopped part-way (logged out, slowed down, Chrome closed)
@@ -611,6 +717,9 @@ async function handle(port, message) {
     switch (type) {
       case "hello":
         result = { version: chrome.runtime.getManifest().version, job: summary(await loadJob()) };
+        break;
+      case "diagnose":
+        result = await diagnose();
         break;
       case "account":
         result = await ig("whoami");

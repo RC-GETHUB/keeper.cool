@@ -52,7 +52,11 @@ const otherPosts = Array.from({ length: 5 }, (_, i) => ({
 }));
 posts.push(...otherPosts);
 const byPk = new Map(posts.map((p) => [p.pk, p]));
-const second = { username: "second.account", saved: otherPosts.map((p) => p.code), collections: new Map() };
+const second = {
+  username: "second.account",
+  saved: otherPosts.map((p) => p.code),
+  collections: new Map([["17900000000000009", { name: "Road Trips", items: [otherPosts[0].code, otherPosts[2].code] }]]),
+};
 const ig = {
   username: "test.account",
   failOnce: true,
@@ -93,6 +97,17 @@ async function mockInstagram(context) {
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (body) => route.fulfill({ status: 200, contentType: "application/json", body });
+    // Its Saved page shows its collections as links, drawn a moment after loading.
+    if (path === `/${second.username}/saved/`) {
+      const links = [...second.collections]
+        .map(([id, c]) => `<a href="/${second.username}/saved/${c.name.toLowerCase().replace(/ /g, "-")}/${id}/"><span>${c.name}</span></a>`)
+        .join("");
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<html><body><a href="/${second.username}/saved/all-posts/">All posts</a><div id="c"></div><script>setTimeout(()=>{document.getElementById("c").innerHTML=${JSON.stringify(links)}},700)</script></body></html>`,
+      });
+    }
     if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Fake Instagram</body></html>" });
     if (request.method() === "POST" && request.headers()["x-csrftoken"] !== "csrf-test") return route.fulfill({ status: 403, body: "CSRF" });
     ig.calls.push(`${request.method()} ${path}${url.search}`);
@@ -115,8 +130,8 @@ async function mockInstagram(context) {
     // SHOT=path: slow the saved list down and screenshot the progress part-way.
     if (process.env.SHOT && path === "/api/v1/feed/saved/posts/") await new Promise((r) => setTimeout(r, 1200));
     if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
-    // The second account refuses the "All posts" entry, like some real ones do.
-    if (path === "/api/v1/collections/list/" && acct === second && url.searchParams.get("collection_types")?.includes("ALL_MEDIA")) {
+    // The second account doesn't get the collection list at all, like Ryan's real one.
+    if (path === "/api/v1/collections/list/" && acct === second) {
       return route.fulfill({ status: 404, contentType: "text/html", body: "<!DOCTYPE html><html>Page not found</html>" });
     }
     if (path === "/api/v1/collections/list/") {
@@ -306,14 +321,19 @@ async function run() {
     console.log("A second Instagram account:");
     await context.clearCookies();
     await logIn(OTHER_ID);
+    // Its Saved page is open in a tab (a tab the extension opened itself would load the real Instagram).
+    const savedTab = await context.newPage();
+    await savedTab.goto(`https://www.instagram.com/${second.username}/saved/`);
+    await page.bringToFront();
     await page.getByRole("button", { name: "Import", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
     await page.getByRole("button", { name: "New library for @second.account" }).click({ timeout: 30_000 });
     await page.getByText(/Added 5 bookmarks/).waitFor({ timeout: 30_000 });
-    check(true, "imports another account into its own library, after asking (its collection list needed the fallback)");
+    check(true, "imports another account into its own library, after asking");
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
+    check((await page.getByTestId("count-Road Trips").textContent()) === "2", "collections read off the Saved page when Instagram won't list them");
 
     const copied = [otherPosts[0].code, otherPosts[1].code];
     for (const c of copied) await page.locator(`[data-id="${c}"] input[type=checkbox]`).check();

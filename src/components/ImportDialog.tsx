@@ -7,6 +7,7 @@ import { readExport } from "@/lib/import";
 import { fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
 import type { Bookmark, ImportResult, InstagramAccount } from "@/lib/types";
+import { DiagnosePanel } from "./DiagnosePanel";
 import { ImportProgress, type LiveRead } from "./ImportProgress";
 import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
 
@@ -183,6 +184,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
                 {w}
               </p>
             ))}
+            {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel />}
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={primaryButton}>
                 Done
@@ -327,9 +329,12 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
             )}
 
             {status.state === "error" && (
-              <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-500/10 dark:text-red-300">
-                {status.message}
-              </p>
+              <>
+                <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-500/10 dark:text-red-300">
+                  {status.message}
+                </p>
+                {hasExtension && <DiagnosePanel />}
+              </>
             )}
 
             <p className="flex items-start gap-2 text-xs text-neutral-500">
