@@ -93,7 +93,7 @@ export function ImportProgress({ live }: { live: LiveRead }) {
           {percent !== null ? (
             <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
           ) : (
-            <div className="h-full w-1/3 animate-pulse rounded-full bg-accent/60" />
+            <div className="bar-indeterminate h-full w-1/3 rounded-full bg-accent" />
           )}
         </div>
         <p className="mt-1 text-xs text-neutral-500">

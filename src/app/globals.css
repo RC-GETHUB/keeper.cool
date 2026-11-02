@@ -43,3 +43,23 @@ button:not(:disabled),
   outline-offset: -2px;
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
+
+/* A bar that glides back and forth: working, amount unknown. */
+@keyframes keeper-indeterminate {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+.bar-indeterminate {
+  animation: keeper-indeterminate 1.2s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-indeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
