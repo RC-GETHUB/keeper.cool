@@ -170,7 +170,7 @@ async function collectionsFromSavedPage(username) {
  * A quick report on which ways of reading Instagram work for this account,
  * for when something doesn't come through. Reads only.
  */
-async function diagnose() {
+async function diagnose(usernameHint) {
   const report = { extension: chrome.runtime.getManifest().version, at: new Date().toISOString() };
   const step = async (name, run) => {
     try {
@@ -182,8 +182,8 @@ async function diagnose() {
   let account = null;
   let fromPage = [];
   await step("account", async () => {
-    account = await ig("whoami");
-    return { username: account.username, hasId: Boolean(account.userId) };
+    account = await ig("whoami", { usernameHint });
+    return { username: account.username, foundVia: account.via, hasId: Boolean(account.userId) };
   });
   await step("savedList", async () => {
     const page = await ig("savedPage", { maxId: null });
@@ -208,7 +208,8 @@ async function diagnose() {
 }
 
 async function readNewSaves(pace, known) {
-  const account = await ig("whoami");
+  const { userId, username } = await ig("whoami");
+  const account = { userId, username };
   const knownSet = new Set(known);
   const saved = [];
   let maxId = null;
@@ -223,8 +224,9 @@ async function readNewSaves(pace, known) {
   return { account, saved, collections: [], partial: true };
 }
 
-async function readInstagram(pace, emit, thumbs) {
-  const account = await ig("whoami");
+async function readInstagram(pace, emit, thumbs, usernameHint) {
+  const found = await ig("whoami", { usernameHint });
+  const account = { userId: found.userId, username: found.username };
   emit({ phase: "account", account });
 
   // The time between pages adapts: it doubles whenever Instagram pushes back
@@ -722,7 +724,7 @@ async function handle(port, message) {
         result = { version: chrome.runtime.getManifest().version, job: summary(await loadJob()) };
         break;
       case "diagnose":
-        result = await diagnose();
+        result = await diagnose(payload.usernameHint);
         break;
       case "account":
         result = await ig("whoami");
@@ -735,7 +737,7 @@ async function handle(port, message) {
           read = await readNewSaves(paceFor(pace), payload.known);
           if (thumbs) thumbs.add(read.saved);
         } else {
-          read = await readInstagram(paceFor(pace), emit, thumbs);
+          read = await readInstagram(paceFor(pace), emit, thumbs, payload.usernameHint);
         }
         // Hand over the list now; the last cover images follow as progress events.
         reply({ ok: true, result: read });

@@ -9,7 +9,7 @@ import { ghostButton } from "./ui";
  * Runs the extension's read-only check of which ways of reading Instagram
  * work for this account, and shows the report to screenshot or copy.
  */
-export function DiagnosePanel() {
+export function DiagnosePanel({ usernameHint }: { usernameHint?: string | null }) {
   const [state, setState] = useState<"idle" | "running" | "done">("idle");
   const [report, setReport] = useState("");
   const [copied, setCopied] = useState(false);
@@ -17,7 +17,7 @@ export function DiagnosePanel() {
   const run = async () => {
     setState("running");
     try {
-      const result = await request<Record<string, unknown>>("diagnose");
+      const result = await request<Record<string, unknown>>("diagnose", { usernameHint });
       setReport(JSON.stringify(result, null, 2));
     } catch (e) {
       setReport(`The check couldn't run: ${e instanceof Error ? e.message : String(e)}`);

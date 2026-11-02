@@ -875,6 +875,7 @@ export function App() {
           onStreamStart={streamStart}
           onStreamPage={streamPage}
           onStreamEnd={streamEnd}
+          usernameHint={identityOf(lib).username ?? null}
           estimateFor={(account) => {
             // The library of this account, or the open one if it holds an import whose account wasn't known yet.
             const entry = accounts!.entries.find((e) => sameIdentity(e, account));

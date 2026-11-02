@@ -94,6 +94,51 @@
     return s ? `?${s}` : "";
   }
 
+  const USERNAME = /^[A-Za-z0-9._]{1,30}$/;
+  const valid = (name) => (typeof name === "string" && USERNAME.test(name) ? name : null);
+
+  /**
+   * The logged-in account's username. Not every account gets it from the
+   * same place, so several are tried in turn; \`via\` says which worked.
+   */
+  async function findUsername(userId, hint) {
+    const attempts = [
+      ["user info", async () => valid((await api(`/api/v1/users/${userId}/info/`)).user?.username)],
+      ["account settings", async () => valid((await api("/api/v1/accounts/edit/web_form_data/")).form_data?.username)],
+      ["current user", async () => valid((await api("/api/v1/accounts/current_user/?edit=true")).user?.username)],
+      [
+        "page data",
+        async () => {
+          // The logged-in page carries the viewer's own record: a username next to this account's id.
+          const html = await (await fetch("/", { credentials: "include" })).text();
+          const near = new RegExp(`"username":"([A-Za-z0-9._]{1,30})"[^{}]{0,300}"(?:id|pk|pk_id)":"?${userId}\\b|"(?:id|pk|pk_id)":"?${userId}"?[^{}]{0,300}"username":"([A-Za-z0-9._]{1,30})"`);
+          const match = html.match(near);
+          return valid(match && (match[1] || match[2]));
+        },
+      ],
+      [
+        "profile link",
+        async () => {
+          // The navigation's own profile picture is labelled "<username>'s profile picture".
+          const labels = [...document.querySelectorAll("nav img[alt$=\"'s profile picture\"], [role=navigation] img[alt$=\"'s profile picture\"]")]
+            .map((img) => img.getAttribute("alt").replace(/'s profile picture$/, ""));
+          const unique = [...new Set(labels)];
+          return unique.length === 1 ? valid(unique[0]) : null;
+        },
+      ],
+      ["Keeper", async () => valid(hint)],
+    ];
+    for (const [via, attempt] of attempts) {
+      try {
+        const username = await attempt();
+        if (username) return { username, via };
+      } catch {
+        // Try the next way.
+      }
+    }
+    return { username: null, via: null };
+  }
+
   function mediaPage(json) {
     const items = (json.items || []).map((item) => liteMedia(item.media || item)).filter(Boolean);
     return { items, more: Boolean(json.more_available && json.next_max_id), next: json.next_max_id || null };
@@ -102,17 +147,11 @@
   const ops = {
     ping: async () => ({ ready: true }),
 
-    whoami: async () => {
+    whoami: async ({ usernameHint } = {}) => {
       const userId = cookie("ds_user_id");
       if (!userId) throw problem("login", "You're not logged into Instagram in this browser. Log in at instagram.com, then try again.");
-      let username = null;
-      try {
-        const info = await api(`/api/v1/users/${userId}/info/`);
-        username = (info.user && info.user.username) || null;
-      } catch {
-        // The id alone is enough to tell accounts apart.
-      }
-      return { userId: String(userId), username };
+      const { username, via } = await findUsername(String(userId), usernameHint);
+      return { userId: String(userId), username, via };
     },
 
     savedPage: async ({ maxId }) => mediaPage(await api(`/api/v1/feed/saved/posts/${query({ max_id: maxId })}`)),

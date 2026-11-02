@@ -157,8 +157,11 @@ export function useExtension(): ExtensionState {
   return state;
 }
 
-export function readInstagram(onProgress: (p: ReadProgress) => void, options: { thumbnails?: boolean } = {}): Promise<InstagramRead> {
-  return request<InstagramRead>("read", { thumbnails: options.thumbnails ?? true, pace: testPace() }, (m) =>
+export function readInstagram(
+  onProgress: (p: ReadProgress) => void,
+  options: { thumbnails?: boolean; usernameHint?: string | null } = {},
+): Promise<InstagramRead> {
+  return request<InstagramRead>("read", { thumbnails: options.thumbnails ?? true, usernameHint: options.usernameHint, pace: testPace() }, (m) =>
     onProgress(m as unknown as ReadProgress),
   );
 }

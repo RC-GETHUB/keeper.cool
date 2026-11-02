@@ -52,6 +52,9 @@ const otherPosts = Array.from({ length: 5 }, (_, i) => ({
 }));
 posts.push(...otherPosts);
 const byPk = new Map(posts.map((p) => [p.pk, p]));
+for (const p of otherPosts) p.collectionIds = [];
+otherPosts[0].collectionIds = ["17900000000000009"];
+otherPosts[2].collectionIds = ["17900000000000009"];
 const second = {
   username: "second.account",
   saved: otherPosts.map((p) => p.code),
@@ -72,7 +75,9 @@ const ig = {
 
 function mediaJson(c) {
   const p = posts.find((x) => x.code === c);
-  return `{"pk":${p.pk},"id":"${p.pk}_999","code":"${p.code}","product_type":"${p.reel ? "clips" : "feed"}","user":{"username":"${p.author}"},"caption":{"text":"${p.caption}"},"image_versions2":{"candidates":[{"width":640,"height":800,"url":"https://scontent.cdninstagram.com/v/${p.code}_big.jpg"},{"width":320,"height":400,"url":"https://scontent.cdninstagram.com/v/${p.code}.jpg"}]}}`;
+  // The second account's posts carry their collection ids, as Ryan's do.
+  const ids = p.collectionIds ? `"saved_collection_ids":[${p.collectionIds.map((id) => `"${id}"`).join(",")}],` : "";
+  return `{${ids}"pk":${p.pk},"id":"${p.pk}_999","code":"${p.code}","product_type":"${p.reel ? "clips" : "feed"}","user":{"username":"${p.author}"},"caption":{"text":"${p.caption}"},"image_versions2":{"candidates":[{"width":640,"height":800,"url":"https://scontent.cdninstagram.com/v/${p.code}_big.jpg"},{"width":320,"height":400,"url":"https://scontent.cdninstagram.com/v/${p.code}.jpg"}]}}`;
 }
 
 function page(list, maxId, size) {
@@ -116,7 +121,10 @@ async function mockInstagram(context) {
     const acct = uid === OTHER_ID ? second : ig;
 
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
-    if (info) return json(`{"user":{"username":"${info[1] === OTHER_ID ? second.username : ig.username}"},"status":"ok"}`);
+    // Like Ryan's account, the second one gets no username from user info, only from its account settings.
+    if (info && info[1] === OTHER_ID) return route.fulfill({ status: 404, contentType: "text/html", body: "<!DOCTYPE html><html>Page not found</html>" });
+    if (info) return json(`{"user":{"username":"${ig.username}"},"status":"ok"}`);
+    if (path === "/api/v1/accounts/edit/web_form_data/" && acct === second) return json(`{"form_data":{"username":"${second.username}"},"status":"ok"}`);
     // The first time, fail part-way through the saved list, like Instagram dropping a session.
     // And once, Instagram's own "572" (busy): Keeper should wait and retry by itself.
     if (path === "/api/v1/feed/saved/posts/" && url.searchParams.get("max_id") === "40" && ig.busyOnce) {

@@ -29,6 +29,8 @@ interface Props {
   onStreamEnd: (result: ImportResult) => MergeSummary;
   /** How many saved posts the last import of this account found, to show "of about N" when Instagram won't say. */
   estimateFor?: (account: InstagramAccount) => number | null;
+  /** The account name Keeper already knows for the open library, in case Instagram won't say it. */
+  usernameHint?: string | null;
 }
 
 type Status =
@@ -50,6 +52,7 @@ export function ImportDialog({
   onStreamPage,
   onStreamEnd,
   estimateFor,
+  usernameHint,
 }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
@@ -99,7 +102,7 @@ export function ImportDialog({
         } else if (p.phase === "retry") {
           update({ retryWait: p.wait });
         }
-      });
+      }, { usernameHint });
       await (pages.chain ?? onStreamStart(read.account, []));
       const result = fromInstagramRead(read);
       setStatus({ state: "done", result, summary: onStreamEnd(result), source: "instagram" });
@@ -196,7 +199,7 @@ export function ImportDialog({
                 {w}
               </p>
             ))}
-            {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel />}
+            {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel usernameHint={usernameHint} />}
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={primaryButton}>
                 Done
@@ -345,7 +348,7 @@ export function ImportDialog({
                 <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-500/10 dark:text-red-300">
                   {status.message}
                 </p>
-                {hasExtension && <DiagnosePanel />}
+                {hasExtension && <DiagnosePanel usernameHint={usernameHint} />}
               </>
             )}
 
