@@ -43,7 +43,7 @@ import {
 import { countLibrary, viewIds, type CollectionSort, type Scope, type SortMode } from "@/lib/library/query";
 import { readNewSaves, useExtension, type ExtensionState } from "@/lib/extension";
 import { mergeNewSaves } from "@/lib/instagram-read";
-import { describe, entryLabel, newLibraryId, routeImport, type LibraryIndex } from "@/lib/libraries";
+import { describe, entryLabel, identityOf, newLibraryId, routeImport, sameIdentity, type LibraryIndex } from "@/lib/libraries";
 import { deleteLibrary, loadLibrary, openLibraries, saveIndex, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
 import type { Bookmark, ImportResult, InstagramAccount, Library } from "@/lib/types";
@@ -875,6 +875,13 @@ export function App() {
           onStreamStart={streamStart}
           onStreamPage={streamPage}
           onStreamEnd={streamEnd}
+          estimateFor={(account) => {
+            // The library of this account, or the open one if it holds an import whose account wasn't known yet.
+            const entry = accounts!.entries.find((e) => sameIdentity(e, account));
+            if (entry?.count) return entry.count;
+            const own = identityOf(lib);
+            return !own.userId && !own.username && lib.order.length ? lib.order.length : null;
+          }}
         />
       )}
       {pushOpen && <PushDialog lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}

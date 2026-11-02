@@ -12,6 +12,8 @@ export interface LiveRead {
   count: number;
   /** All saved posts on the account, when Instagram says. */
   total: number | null;
+  /** Otherwise, how many the last import of this account found: shown as "about". */
+  estimate?: number | null;
   collections?: { done: number; total: number; name?: string };
   /** Set while waiting to retry after Instagram was busy, in ms. */
   retryWait?: number;
@@ -56,7 +58,9 @@ function timeLeft(ms: number): string {
 
 export function ImportProgress({ live }: { live: LiveRead }) {
   const shown = useCountUp(live.count);
-  const total = live.total ? Math.max(live.total, live.count) : null;
+  const estimated = !live.total && Boolean(live.estimate);
+  const known = live.total ?? live.estimate ?? null;
+  const total = known ? Math.max(known, live.count) : null;
   const percent = total ? Math.min(100, (100 * shown) / total) : null;
 
   // Time left, from the pace since the first page arrived.
@@ -79,7 +83,9 @@ export function ImportProgress({ live }: { live: LiveRead }) {
       <div>
         <p className="flex items-baseline justify-between gap-2">
           <span className="font-semibold tabular-nums" data-testid="import-count">
-            {total ? `${fmtCount.format(shown)} of ${fmtCount.format(total)} saved posts` : `${fmtCount.format(shown)} saved posts so far`}
+            {total
+              ? `${fmtCount.format(shown)} of ${estimated ? "about " : ""}${fmtCount.format(total)} saved posts`
+              : `${fmtCount.format(shown)} saved posts so far`}
           </span>
           {percent !== null && <span className="text-xs text-neutral-500 tabular-nums">{Math.floor(percent)}%</span>}
         </p>
@@ -94,6 +100,12 @@ export function ImportProgress({ live }: { live: LiveRead }) {
           {eta !== null ? `${timeLeft(eta)} · ` : ""}Your library fills in as they arrive.
         </p>
       </div>
+
+      {!readingCollections && collections && collections.total > 0 && (
+        <p className="text-xs text-neutral-600 dark:text-neutral-400" data-testid="import-collections">
+          {fmtCount.format(collections.total)} collections found. Their posts are matched up after the saved posts.
+        </p>
+      )}
 
       {readingCollections && collections && (
         <div>

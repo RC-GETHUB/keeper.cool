@@ -271,6 +271,9 @@ async function readInstagram(pace, emit, thumbs) {
     }
   }
 
+  // Say how many collections there are straight away; they're matched up after the saved posts.
+  if (collections.length) emit({ phase: "collections", done: 0, total: collections.length });
+
   // A read that stopped part-way (logged out, slowed down, Chrome closed)
   // carries on from where it got to, for up to six hours.
   const stored = (await chrome.storage.local.get(READ_KEY))[READ_KEY];

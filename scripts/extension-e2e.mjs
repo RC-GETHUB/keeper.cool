@@ -128,7 +128,9 @@ async function mockInstagram(context) {
       return route.fulfill({ status: 401, contentType: "application/json", body: '{"message":"login_required","status":"fail"}' });
     }
     // SHOT=path: slow the saved list down and screenshot the progress part-way.
-    if (process.env.SHOT && path === "/api/v1/feed/saved/posts/") await new Promise((r) => setTimeout(r, 1200));
+    if ((process.env.SHOT || (process.env.SHOT2 && acct === second && second.slow)) && path === "/api/v1/feed/saved/posts/") {
+      await new Promise((r) => setTimeout(r, 1200));
+    }
     if (path === "/api/v1/feed/saved/posts/") return json(page(acct.saved, url.searchParams.get("max_id"), 20));
     // The second account doesn't get the collection list at all, like Ryan's real one.
     if (path === "/api/v1/collections/list/" && acct === second) {
@@ -334,6 +336,17 @@ async function run() {
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
     check((await page.getByTestId("count-Road Trips").textContent()) === "2", "collections read off the Saved page when Instagram won't list them");
+    if (process.env.SHOT2) {
+      // Import this account again, slowly, to see "of about N" and the collection count.
+      second.slow = true;
+      await page.getByRole("button", { name: "Import", exact: true }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+      await page.getByTestId("import-count").waitFor();
+      await page.waitForTimeout(1500);
+      await page.getByRole("dialog").screenshot({ path: process.env.SHOT2 });
+      console.log("screenshot saved:", await page.getByTestId("import-count").innerText());
+      process.exit(0);
+    }
 
     const copied = [otherPosts[0].code, otherPosts[1].code];
     for (const c of copied) await page.locator(`[data-id="${c}"] input[type=checkbox]`).check();

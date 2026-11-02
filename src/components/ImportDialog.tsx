@@ -27,6 +27,8 @@ interface Props {
   onStreamStart: (account: InstagramAccount, firstIds: string[]) => Promise<void>;
   onStreamPage: (bookmarks: Bookmark[], account: InstagramAccount) => void;
   onStreamEnd: (result: ImportResult) => MergeSummary;
+  /** How many saved posts the last import of this account found, to show "of about N" when Instagram won't say. */
+  estimateFor?: (account: InstagramAccount) => number | null;
 }
 
 type Status =
@@ -38,7 +40,17 @@ type Status =
   | { state: "error"; message: string };
 
 
-export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs, onStreamStart, onStreamPage, onStreamEnd }: Props) {
+export function ImportDialog({
+  extension,
+  autoStart,
+  onClose,
+  onImport,
+  onThumbs,
+  onStreamStart,
+  onStreamPage,
+  onStreamEnd,
+  estimateFor,
+}: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
   const [showExport, setShowExport] = useState(false);
@@ -75,7 +87,7 @@ export function ImportDialog({ extension, autoStart, onClose, onImport, onThumbs
           if (p.items?.length) onThumbs(p.items);
           setThumbs({ done: p.done ?? 0, total: p.total ?? 0, finished: p.phase === "thumbs-done" });
         } else if (p.phase === "account" && p.account) {
-          update({ account: p.account });
+          update({ account: p.account, estimate: estimateFor?.(p.account) ?? null });
         } else if (p.phase === "page" && p.media && live.account) {
           const account = live.account;
           const bookmarks = toBookmarks(p.media, account);
