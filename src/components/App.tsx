@@ -346,7 +346,13 @@ export function App() {
     setDrawer(false);
   };
 
-  const select = (id: string, index: number, range: boolean) => {
+  // Clicking a post opens it; once something is ticked, clicks add to the selection (like picking photos).
+  const select = (id: string, index: number, range: boolean, fromRow = false) => {
+    if (fromRow && !range && selected.size === 0) {
+      setPreviewId(id);
+      anchor.current = index;
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (range && anchor.current !== null) {

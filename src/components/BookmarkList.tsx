@@ -17,7 +17,8 @@ interface Props {
   /** Changes when the user switches view, to scroll back to the top. */
   viewKey: string;
   selected: Set<string>;
-  onSelect: (id: string, index: number, range: boolean) => void;
+  /** `fromRow`: a click on the row itself rather than its checkbox. */
+  onSelect: (id: string, index: number, range: boolean, fromRow?: boolean) => void;
   /** Reordering by drag works in custom order without a search. */
   canDrag: boolean;
   onMove: (ids: string[], toIndex: number) => void;
@@ -239,7 +240,7 @@ export function BookmarkList(props: Props) {
         e.stopPropagation();
         e.preventDefault();
       },
-      select: (id, index, range) => latest.current.onSelect(id, index, range),
+      select: (id, index, range, fromRow) => latest.current.onSelect(id, index, range, fromRow),
       moveTo: (id, index) => latest.current.onMove([id], index),
       rename: (id, title) => latest.current.onRename(id, title),
       preview: (id) => latest.current.onPreview(id),
@@ -315,7 +316,7 @@ interface RowHandlers {
   down: (e: React.PointerEvent, id: string) => void;
   rowDown: (e: React.PointerEvent, id: string) => void;
   clickGuard: (e: React.MouseEvent) => void;
-  select: (id: string, index: number, range: boolean) => void;
+  select: (id: string, index: number, range: boolean, fromRow?: boolean) => void;
   moveTo: (id: string, index: number) => void;
   rename: (id: string, title: string) => void;
   preview: (id: string) => void;
@@ -365,7 +366,7 @@ const Row = memo(function Row({
     <div
       role="listitem"
       data-id={bookmark.id}
-      onClick={(e) => h.select(bookmark.id, index, e.shiftKey)}
+      onClick={(e) => h.select(bookmark.id, index, e.shiftKey, true)}
       onClickCapture={h.clickGuard}
       onPointerDown={(e) => h.rowDown(e, bookmark.id)}
       className={`group absolute inset-x-0 flex items-center gap-2 border-b select-none border-neutral-100 pr-2 pl-1 sm:gap-3 sm:pr-4 dark:border-neutral-900 ${

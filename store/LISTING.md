@@ -1,9 +1,13 @@
 # Chrome Web Store listing: Keeper – Saved Post Organizer
 
 Everything to paste into the Chrome Web Store developer dashboard
-(https://chrome.google.com/webstore/devconsole). Upload
-`public/keeper-extension.zip` (built by `npm run build`, or download it from
-https://keeper-cool.vercel.app/keeper-extension.zip).
+(https://chrome.google.com/webstore/devconsole).
+
+**Upload this zip:** https://keeper-cool.vercel.app/keeper-extension-store.zip
+(the same extension, with manifest.json at the top of the zip and without the
+localhost address used for development; built by `npm run build`).
+
+**Pictures for the listing, in one zip:** https://keeper-cool.vercel.app/keeper-store-images.zip
 
 ## Store listing
 

@@ -7,3 +7,5 @@ next-env.d.ts
 .vercel
 bench-results
 public/keeper-extension.zip
+public/keeper-extension-store.zip
+public/keeper-store-images.zip
