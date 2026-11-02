@@ -56,7 +56,15 @@ export default function PrivacyPage() {
               It uses your existing Instagram login in the browser. It never reads, stores or sends your password, and your session
               never leaves your computer.
             </li>
-            <li>It keeps the progress of a sync in the extension&apos;s local storage so it can resume after Chrome restarts.</li>
+            <li>
+              Some accounts can&apos;t ask Instagram for their list of collections, so on instagram.com the extension notices the names of
+              your own collections in what Instagram&apos;s Saved page loads. It reads nothing else there, changes nothing, and sends nothing
+              anywhere.
+            </li>
+            <li>
+              It keeps the progress of an import or sync, and your collection names, in the extension&apos;s local storage on this
+              computer, so they carry on after Chrome restarts and don&apos;t have to be read again.
+            </li>
             <li>It doesn&apos;t collect browsing history, analytics or anything from other websites, and it doesn&apos;t load remote code.</li>
           </ul>
         </section>

@@ -39,17 +39,20 @@ Syncing works slowly and carefully (about one post a minute) and stops if Instag
 **Website:** https://keeper-cool.vercel.app (switch to https://keeper.cool once the domain is live)
 **Support:** a support email address (needed; not set yet)
 
+**Test instructions for the reviewer** (dashboard → Test instructions): "Install, open https://keeper-cool.vercel.app and log into any Instagram account in the same Chrome. Click Import → Import from Instagram → Start import. Saved posts appear in Keeper. Sync to Instagram only runs after ticking the consent box; please try it on a test account."
+
 ## Privacy practices tab
 
 **Single purpose:**
 Lets people organize their own Instagram saved posts in keeper.cool: it reads their saved posts and collections from their logged-in Instagram tab, and, when they ask, re-saves posts so Instagram's saved order matches the order they chose.
 
 **Permission justifications:**
-- `storage`: keeps the progress of a sync so it can resume after Chrome restarts.
+- `storage`: keeps the progress of an import or sync so it can carry on after Chrome restarts, and remembers the names of the user's own Instagram collections so they don't have to be read again.
 - `alarms`: paces a sync (one post every 40–75 seconds) even while the extension's background worker sleeps.
-- `scripting`: adds Keeper's helper to an instagram.com tab that was already open before the extension was installed.
-- Host `https://www.instagram.com/*`: reads the user's saved posts and collections, and saves/unsaves posts when they choose to sync.
+- `scripting`: adds Keeper's helper to instagram.com and keeper.cool tabs that were already open before the extension was installed, and reads the collection names shown on the user's own Instagram Saved page.
+- Host `https://www.instagram.com/*`: reads the user's saved posts and collections, and saves/unsaves posts when they choose to sync. A small script on instagram.com notices the names of the user's own collections in what Instagram's Saved page loads (some accounts can't ask for the list directly); it reads nothing else, changes nothing, and sends nothing anywhere.
 - Hosts `https://*.cdninstagram.com/*`, `https://*.fbcdn.net/*`: downloads cover images of the user's saved posts to make small thumbnails.
+- Hosts `https://keeper.cool/*`, `https://www.keeper.cool/*`, `https://keeper-cool.vercel.app/*`: connects the extension to the Keeper web app the user has open, including right after installing (no reload needed). `http://localhost:3000/*` is only for development and can be removed from the store build.
 
 **Remote code:** No, the extension does not use remote code.
 
@@ -65,4 +68,5 @@ Lets people organize their own Instagram saved posts in keeper.cool: it reads th
 
 - Test on a spare Instagram account (import, then a small sync).
 - Set "Visibility" to Unlisted for the first release if you'd like to test the store install before going public.
-- After it's approved, replace the "Download keeper-extension.zip" steps on /extension with the store's "Add to Chrome" link.
+- After it's approved, replace the "Download keeper-extension.zip" steps in the install card (`src/components/ExtensionGuide.tsx`, also used by /extension) with the store's "Add to Chrome" link. Store installs update themselves, so the "download again and ↻" steps go away.
+- Bump `version` in `extension/manifest.json` for every upload; the store refuses a version it has seen.

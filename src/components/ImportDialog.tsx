@@ -204,6 +204,29 @@ export function ImportDialog({
     }
   });
 
+  // The tab's title shows the progress, so an import can run in a background tab.
+  const progressTitle =
+    status.state === "fetching"
+      ? status.live.total
+        ? `${Math.min(99, Math.floor((100 * status.live.count) / status.live.total))}% imported`
+        : `${fmtCount.format(status.live.count)} imported`
+      : status.state === "done" && status.source === "instagram"
+        ? "✓ Import finished"
+        : null;
+  useEffect(() => {
+    if (!progressTitle) return;
+    const base = document.title.replace(/^.* · (?=Keeper)/, "");
+    document.title = `${progressTitle} · ${base}`;
+    const restore = () => {
+      if (document.visibilityState === "visible" && progressTitle.startsWith("✓")) document.title = base;
+    };
+    document.addEventListener("visibilitychange", restore);
+    return () => {
+      document.removeEventListener("visibilitychange", restore);
+      document.title = base;
+    };
+  }, [progressTitle]);
+
   const busy = status.state === "reading" || status.state === "fetching" || (status.state === "login" && status.waiting);
   useEffect(() => {
     onRunningChange?.(status.state === "fetching");
