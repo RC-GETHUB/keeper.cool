@@ -41,7 +41,8 @@ Syncing works slowly and carefully (about one post a minute) and stops if Instag
 - Screenshots (1280×800): `store/screenshot-*.png`
 
 **Website:** https://keeper-cool.vercel.app (switch to https://keeper.cool once the domain is live)
-**Support:** a support email address (needed; not set yet)
+**Support email:** rc@ryancramer.la (set in `src/lib/site.ts` for the site)
+**Support URL:** https://keeper-cool.vercel.app/help
 
 **Test instructions for the reviewer** (dashboard → Test instructions): "Install, open https://keeper-cool.vercel.app and log into any Instagram account in the same Chrome. Click Import → Import from Instagram → Start import. Saved posts appear in Keeper. Sync to Instagram only runs after ticking the consent box; please try it on a test account."
 

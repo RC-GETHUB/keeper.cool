@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SUPPORT_EMAIL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -83,6 +84,16 @@ export default function PrivacyPage() {
           <p>
             When Keeper adds accounts (so your library follows you between devices), this page will be updated to explain what is
             stored on our servers and how to delete it, before that feature is turned on.
+          </p>
+        </section>
+
+        <section>
+          <h2>Contact</h2>
+          <p>
+            Questions about your data:{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-accent underline underline-offset-2">
+              {SUPPORT_EMAIL}
+            </a>
           </p>
         </section>
 

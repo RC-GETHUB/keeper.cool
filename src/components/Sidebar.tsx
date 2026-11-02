@@ -353,6 +353,9 @@ export function Sidebar({
           <button type="button" onClick={onExtension} className="hover:underline">
             Extension
           </button>
+          <a href="/help" className="hover:underline">
+            Help
+          </a>
           <a href="/privacy" className="hover:underline">
             Privacy
           </a>
