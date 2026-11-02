@@ -157,11 +157,21 @@ export function useExtension(): ExtensionState {
   return state;
 }
 
+/** A username Keeper already knows, and the account it belongs to (it's only used for that account). */
+export interface UsernameHint {
+  userId: string;
+  username: string;
+}
+
 export function readInstagram(
   onProgress: (p: ReadProgress) => void,
-  options: { thumbnails?: boolean; usernameHint?: string | null } = {},
+  options: { thumbnails?: boolean; hint?: UsernameHint | null } = {},
 ): Promise<InstagramRead> {
-  return request<InstagramRead>("read", { thumbnails: options.thumbnails ?? true, usernameHint: options.usernameHint, pace: testPace() }, (m) =>
+  const hint = options.hint ?? null;
+  return request<InstagramRead>(
+    "read",
+    { thumbnails: options.thumbnails ?? true, usernameHint: hint?.username, hintUserId: hint?.userId, pace: testPace() },
+    (m) =>
     onProgress(m as unknown as ReadProgress),
   );
 }
@@ -210,6 +220,11 @@ export function logInToInstagram(): Promise<InstagramAccount> {
       }
     }, 2500);
   });
+}
+
+/** The account's collection names and ids (from the list, or the Saved page of `username`). */
+export function readCollections(username: string | null): Promise<{ collections: { id: string; name: string }[] }> {
+  return request("collections", { username });
 }
 
 export function startPush(steps: PushStep[], account: InstagramAccount): Promise<JobSummary> {

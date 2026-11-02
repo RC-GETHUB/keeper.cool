@@ -41,8 +41,8 @@ import {
   renameCollection,
 } from "@/lib/library/ops";
 import { countLibrary, viewIds, type CollectionSort, type Scope, type SortMode } from "@/lib/library/query";
-import { readNewSaves, useExtension, type ExtensionState } from "@/lib/extension";
-import { mergeNewSaves } from "@/lib/instagram-read";
+import { readCollections, readNewSaves, useExtension, type ExtensionState } from "@/lib/extension";
+import { collectionsFromLibrary, mergeNewSaves } from "@/lib/instagram-read";
 import { describe, entryLabel, identityOf, newLibraryId, routeImport, sameIdentity, type LibraryIndex } from "@/lib/libraries";
 import { deleteLibrary, loadLibrary, openLibraries, saveIndex, saveLibrary } from "@/lib/storage";
 import { syntheticImport } from "@/lib/synthetic";
@@ -93,6 +93,21 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
   const [autoImport, setAutoImport] = useState(false);
+  // An import keeps running (and its window stays mounted, hidden) when the window is closed.
+  const [importRunning, setImportRunning] = useState(false);
+  // Keeps the window (and its summary) around after an import that ran while it was closed.
+  const [importAlive, setImportAlive] = useState(false);
+  const importOpenRef = useRef(importOpen);
+  importOpenRef.current = importOpen;
+  const onImportRunning = useCallback((running: boolean) => {
+    setImportRunning((was) => {
+      if (was && !running && !importOpenRef.current) {
+        setToast({ message: "Import finished. Click Import to see the summary.", undo: false });
+      }
+      return running;
+    });
+    if (running) setImportAlive(true);
+  }, []);
   const extension = useExtension();
   const [drawer, setDrawer] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
@@ -388,12 +403,12 @@ export function App() {
   };
 
   /** Asks where an import from another account should go. */
-  const askWhere = (username: string) =>
+  const askWhere = (username: string | null) =>
     new Promise<"new" | "here">((resolve) =>
       setChoice({
-        title: `These are @${username}'s saves`,
+        title: username ? `These are @${username}'s saves` : "These saves are from another Instagram account",
         message: `The open library (${entryLabel(index.entries.find((e) => e.id === index.active)!)}) already has other saves. Keeper keeps each Instagram account in its own library.`,
-        primary: { label: `New library for @${username}`, run: () => resolve("new") },
+        primary: { label: username ? `New library for @${username}` : "New library for this account", run: () => resolve("new") },
         secondary: { label: "Add to the open library", run: () => resolve("here") },
       }),
     );
@@ -407,7 +422,7 @@ export function App() {
     if (route.kind === "switch") {
       target = await switchLibrary(route.id);
       elsewhere = true;
-    } else if (route.kind === "ask" && (await askWhere(incoming.username ?? "another account")) === "new") {
+    } else if (route.kind === "ask" && (await askWhere(incoming.username ?? null)) === "new") {
       target = await addLibrary();
       elsewhere = true;
     }
@@ -425,7 +440,7 @@ export function App() {
     const route = routeImport(index, current, { userId: account.userId, username: account.username }, firstIds);
     let target = current;
     if (route.kind === "switch") target = await switchLibrary(route.id);
-    else if (route.kind === "ask" && (await askWhere(account.username ?? "another account")) === "new") target = await addLibrary();
+    else if (route.kind === "ask" && (await askWhere(account.username ?? null)) === "new") target = await addLibrary();
     else setHistory((h) => [...h.slice(-(HISTORY - 1)), current]);
     if (!target.importing) target = { ...target, importBase: target.order.length };
     libRef.current = target;
@@ -463,6 +478,22 @@ export function App() {
     libRef.current = library;
     setLib(library);
     return { ...merged.summary, added };
+  };
+
+  /** Reads collection names off the Saved page of `username` and files the library's posts into them. */
+  const getCollections = async (username: string): Promise<number> => {
+    const { collections } = await readCollections(username);
+    if (!collections.length) {
+      throw new Error(`Keeper couldn't find any collections on @${username}'s Saved page. Check the username, and that Instagram in this browser is logged into that account.`);
+    }
+    const current = libRef.current!;
+    // Remember the username for this library.
+    const named: Library = current.instagram
+      ? { ...current, instagram: { ...current.instagram, username: current.instagram.username ?? username } }
+      : { ...current, exportUsername: current.exportUsername ?? username };
+    const { library } = mergeImport(named, collectionsFromLibrary(named, collections), { flagNew: false });
+    commit(library, `Added ${plural(collections.length, "collection")}`);
+    return collections.length;
   };
 
   /** Copies bookmarks into another account's library, to be saved there by its next Sync. */
@@ -564,7 +595,8 @@ export function App() {
           <Undo2 className="size-4" />
         </button>
         <button type="button" onClick={() => setImportOpen(true)} className={`${ghostButton} px-2 sm:px-3`} aria-label="Import">
-          <Upload className="size-4" /> <span className="hidden sm:inline">Import</span>
+          {importRunning ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{" "}
+          <span className="hidden sm:inline">{importRunning ? "Importing…" : "Import"}</span>
         </button>
         <div className="hidden lg:block">
           {extension.job && ["running", "waiting", "paused", "blocked"].includes(extension.job.status) ? (
@@ -862,19 +894,25 @@ export function App() {
         )}
       </div>
 
-      {importOpen && (
+      {(importOpen || importAlive) && (
         <ImportDialog
+          hidden={!importOpen}
+          onRunningChange={onImportRunning}
+          onGetCollections={getCollections}
           extension={extension}
           autoStart={autoImport}
           onClose={() => {
             setImportOpen(false);
             setAutoImport(false);
+            // A running import carries on out of sight; a finished one can go.
+            if (!importRunning) setImportAlive(false);
           }}
           onImport={importResult}
           onThumbs={rememberThumbs}
           onStreamStart={streamStart}
           onStreamPage={streamPage}
           onStreamEnd={streamEnd}
+          hint={lib.instagram?.userId && lib.instagram.username ? { userId: lib.instagram.userId, username: lib.instagram.username } : null}
           usernameHint={identityOf(lib).username ?? null}
           estimateFor={(account) => {
             // The library of this account, or the open one if it holds an import whose account wasn't known yet.

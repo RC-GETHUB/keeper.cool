@@ -64,6 +64,7 @@ export function fromInstagramRead(read: InstagramRead): ImportResult {
     const bookmark: Bookmark = { id: m.code, kind: m.kind, url: postUrl(m.code, m.kind), mediaId: m.pk };
     if (m.author) bookmark.author = m.author;
     if (m.caption?.trim()) bookmark.caption = m.caption.trim();
+    if (m.collectionIds?.length) bookmark.igCollections = m.collectionIds;
     bookmarks.push(bookmark);
   }
   return {
@@ -96,6 +97,16 @@ export function mergeNewSaves(lib: Library, read: InstagramRead): { library: Lib
     }
   }
   return { library: next, added: summary.added };
+}
+
+/**
+ * Collections from their names and ids alone, filled from the collection ids
+ * each bookmark carries (for when the names arrive after the posts).
+ */
+export function collectionsFromLibrary(lib: Library, named: { id: string; name: string }[]): ImportResult {
+  const byId = new Map(named.map((c) => [c.id, { name: c.name, instagramId: c.id, items: [] as string[] }]));
+  for (const id of lib.order) for (const cid of lib.bookmarks[id]?.igCollections ?? []) byId.get(cid)?.items.push(id);
+  return { bookmarks: [], collections: [...byId.values()], mergedDuplicates: 0, skipped: 0, warnings: [], partial: true };
 }
 
 /**

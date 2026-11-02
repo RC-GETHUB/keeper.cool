@@ -2,14 +2,14 @@
 
 import { Copy, Loader2, Stethoscope } from "lucide-react";
 import { useState } from "react";
-import { request } from "@/lib/extension";
+import { request, type UsernameHint } from "@/lib/extension";
 import { ghostButton } from "./ui";
 
 /**
  * Runs the extension's read-only check of which ways of reading Instagram
  * work for this account, and shows the report to screenshot or copy.
  */
-export function DiagnosePanel({ usernameHint }: { usernameHint?: string | null }) {
+export function DiagnosePanel({ hint }: { hint?: UsernameHint | null }) {
   const [state, setState] = useState<"idle" | "running" | "done">("idle");
   const [report, setReport] = useState("");
   const [copied, setCopied] = useState(false);
@@ -17,7 +17,7 @@ export function DiagnosePanel({ usernameHint }: { usernameHint?: string | null }
   const run = async () => {
     setState("running");
     try {
-      const result = await request<Record<string, unknown>>("diagnose", { usernameHint });
+      const result = await request<Record<string, unknown>>("diagnose", { usernameHint: hint?.username, hintUserId: hint?.userId });
       setReport(JSON.stringify(result, null, 2));
     } catch (e) {
       setReport(`The check couldn't run: ${e instanceof Error ? e.message : String(e)}`);

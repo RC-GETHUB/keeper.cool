@@ -58,6 +58,7 @@ export function mergeImport(lib: Library, result: ImportResult, options: MergeOp
       caption: incoming.caption ?? existing.caption,
       thumbnailUrl: incoming.thumbnailUrl ?? existing.thumbnailUrl,
       mediaId: existing.mediaId ?? incoming.mediaId,
+      igCollections: incoming.igCollections ?? existing.igCollections,
       savedAt: existing.savedAt ?? incoming.savedAt,
     };
     if (existing.toSave || Object.keys(merged).some((k) => merged[k as keyof Bookmark] !== existing[k as keyof Bookmark])) {

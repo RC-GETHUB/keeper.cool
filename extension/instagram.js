@@ -117,6 +117,15 @@
         },
       ],
       [
+        "profile menu",
+        async () => {
+          // Instagram's left-hand menu has a "Profile" item linking to /<username>/.
+          const links = [...document.querySelectorAll('a[href^="/"]')].filter((a) => /^\s*profile\s*$/i.test(a.innerText || a.getAttribute("aria-label") || ""));
+          const names = [...new Set(links.map((a) => (a.getAttribute("href") || "").match(/^\/([A-Za-z0-9._]{1,30})\/?$/)?.[1]).filter(Boolean))];
+          return names.length === 1 ? valid(names[0]) : null;
+        },
+      ],
+      [
         "profile link",
         async () => {
           // The navigation's own profile picture is labelled "<username>'s profile picture".
@@ -147,10 +156,12 @@
   const ops = {
     ping: async () => ({ ready: true }),
 
-    whoami: async ({ usernameHint } = {}) => {
+    whoami: async ({ usernameHint, hintUserId } = {}) => {
       const userId = cookie("ds_user_id");
       if (!userId) throw problem("login", "You're not logged into Instagram in this browser. Log in at instagram.com, then try again.");
-      const { username, via } = await findUsername(String(userId), usernameHint);
+      // Keeper's own idea of the username only counts if it's for this very account.
+      const hint = hintUserId && String(hintUserId) === String(userId) ? usernameHint : null;
+      const { username, via } = await findUsername(String(userId), hint);
       return { userId: String(userId), username, via };
     },
 

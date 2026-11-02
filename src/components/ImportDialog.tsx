@@ -2,11 +2,12 @@
 
 import { ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState } from "@/lib/extension";
+import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState, type UsernameHint } from "@/lib/extension";
 import { readExport } from "@/lib/import";
 import { fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
 import type { Bookmark, ImportResult, InstagramAccount } from "@/lib/types";
+import { CollectionsFix } from "./CollectionsFix";
 import { DiagnosePanel } from "./DiagnosePanel";
 import { ImportProgress, type LiveRead } from "./ImportProgress";
 import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
@@ -29,8 +30,15 @@ interface Props {
   onStreamEnd: (result: ImportResult) => MergeSummary;
   /** How many saved posts the last import of this account found, to show "of about N" when Instagram won't say. */
   estimateFor?: (account: InstagramAccount) => number | null;
-  /** The account name Keeper already knows for the open library, in case Instagram won't say it. */
+  /** The open library's account, in case Instagram won't say the username. Only used if it's the account logged in. */
+  hint?: UsernameHint | null;
+  /** The account name Keeper knows for the open library, to prefill "What's your username?". */
   usernameHint?: string | null;
+  /** Reads collection names from the Saved page of `username` and files the library's posts into them. Resolves to how many. */
+  onGetCollections: (username: string) => Promise<number>;
+  /** Kept mounted (hidden) while an import runs, so reopening shows its progress. */
+  hidden?: boolean;
+  onRunningChange?: (running: boolean) => void;
 }
 
 type Status =
@@ -52,7 +60,11 @@ export function ImportDialog({
   onStreamPage,
   onStreamEnd,
   estimateFor,
+  hint,
   usernameHint,
+  onGetCollections,
+  hidden,
+  onRunningChange,
 }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
@@ -102,7 +114,7 @@ export function ImportDialog({
         } else if (p.phase === "retry") {
           update({ retryWait: p.wait });
         }
-      }, { usernameHint });
+      }, { hint });
       await (pages.chain ?? onStreamStart(read.account, []));
       const result = fromInstagramRead(read);
       setStatus({ state: "done", result, summary: onStreamEnd(result), source: "instagram" });
@@ -139,10 +151,16 @@ export function ImportDialog({
   });
 
   const busy = status.state === "reading" || status.state === "fetching" || (status.state === "login" && status.waiting);
+  useEffect(() => {
+    onRunningChange?.(status.state === "fetching");
+  }, [status.state, onRunningChange]);
   const exportOpen = !hasExtension || showExport;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
+    <div
+      className={`fixed inset-0 z-40 items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4 ${hidden ? "hidden" : "flex"}`}
+      onClick={onClose}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -199,7 +217,10 @@ export function ImportDialog({
                 {w}
               </p>
             ))}
-            {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel usernameHint={usernameHint} />}
+            {status.source === "instagram" && status.result.collections.length === 0 && !status.result.account?.username && (
+              <CollectionsFix initial={usernameHint} onGetCollections={onGetCollections} />
+            )}
+            {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel hint={hint} />}
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={primaryButton}>
                 Done
@@ -348,7 +369,7 @@ export function ImportDialog({
                 <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-500/10 dark:text-red-300">
                   {status.message}
                 </p>
-                {hasExtension && <DiagnosePanel usernameHint={usernameHint} />}
+                {hasExtension && <DiagnosePanel hint={hint} />}
               </>
             )}
 

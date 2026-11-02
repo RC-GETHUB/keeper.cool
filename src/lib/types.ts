@@ -19,6 +19,8 @@ export interface Bookmark {
   isNew?: true;
   /** Copied from another account's library and not yet saved on this account: Sync saves it. */
   toSave?: true;
+  /** Ids of the Instagram collections it's in, as Instagram listed them at the last import. */
+  igCollections?: string[];
 }
 
 export interface Collection {

@@ -170,7 +170,7 @@ async function collectionsFromSavedPage(username) {
  * A quick report on which ways of reading Instagram work for this account,
  * for when something doesn't come through. Reads only.
  */
-async function diagnose(usernameHint) {
+async function diagnose(hint = {}) {
   const report = { extension: chrome.runtime.getManifest().version, at: new Date().toISOString() };
   const step = async (name, run) => {
     try {
@@ -182,7 +182,7 @@ async function diagnose(usernameHint) {
   let account = null;
   let fromPage = [];
   await step("account", async () => {
-    account = await ig("whoami", { usernameHint });
+    account = await ig("whoami", hint);
     return { username: account.username, foundVia: account.via, hasId: Boolean(account.userId) };
   });
   await step("savedList", async () => {
@@ -224,8 +224,8 @@ async function readNewSaves(pace, known) {
   return { account, saved, collections: [], partial: true };
 }
 
-async function readInstagram(pace, emit, thumbs, usernameHint) {
-  const found = await ig("whoami", { usernameHint });
+async function readInstagram(pace, emit, thumbs, hint = {}) {
+  const found = await ig("whoami", hint);
   const account = { userId: found.userId, username: found.username };
   emit({ phase: "account", account });
 
@@ -687,6 +687,7 @@ chrome.runtime.onStartup.addListener(async () => {
 // ---------------------------------------------------------------- Talking to Keeper
 
 const ports = new Set();
+let fullReadRunning = false;
 
 function broadcast(message) {
   for (const port of ports) {
@@ -723,13 +724,29 @@ async function handle(port, message) {
       case "hello":
         result = { version: chrome.runtime.getManifest().version, job: summary(await loadJob()) };
         break;
+      case "collections": {
+        // Just the collection names and ids, for when the username is now known.
+        const username = payload.username;
+        let list = [];
+        try {
+          const page = await ig("collectionsPage", { maxId: null });
+          list = page.items;
+        } catch {
+          list = username ? await collectionsFromSavedPage(username) : [];
+        }
+        result = { collections: list };
+        break;
+      }
       case "diagnose":
-        result = await diagnose(payload.usernameHint);
+        result = await diagnose({ usernameHint: payload.usernameHint, hintUserId: payload.hintUserId });
         break;
       case "account":
         result = await ig("whoami");
         break;
       case "read": {
+        if (!Array.isArray(payload.known) && fullReadRunning) {
+          throw { code: "busy", message: "An import is already running. Leave it to finish; this window shows its progress when you reopen it." };
+        }
         const emit = (progress) => reply({ event: "progress", ...progress });
         const thumbs = payload.thumbnails !== false ? thumbPipeline(emit) : null;
         let read;
@@ -737,7 +754,12 @@ async function handle(port, message) {
           read = await readNewSaves(paceFor(pace), payload.known);
           if (thumbs) thumbs.add(read.saved);
         } else {
-          read = await readInstagram(paceFor(pace), emit, thumbs, payload.usernameHint);
+          fullReadRunning = true;
+          try {
+            read = await readInstagram(paceFor(pace), emit, thumbs, { usernameHint: payload.usernameHint, hintUserId: payload.hintUserId });
+          } finally {
+            fullReadRunning = false;
+          }
         }
         // Hand over the list now; the last cover images follow as progress events.
         reply({ ok: true, result: read });

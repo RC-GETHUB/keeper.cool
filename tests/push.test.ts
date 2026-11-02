@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeToPk, collectionsFromMedia, fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
+import { codeToPk, collectionsFromLibrary, collectionsFromMedia, fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
 import { emptyLibrary, mergeImport } from "@/lib/library/ops";
 import { estimateDuration, formatDuration, planPush, type PushPlan } from "@/lib/push";
 
@@ -119,8 +119,8 @@ describe("fromInstagramRead", () => {
     };
     const result = fromInstagramRead(read);
     expect(result.bookmarks).toEqual([
-      { id: "AAAAAAAAAAA", kind: "reel", url: "https://www.instagram.com/reel/AAAAAAAAAAA/", mediaId: "1", author: "chef.maria", caption: "Crispy tacos" },
-      { id: "BBBBBBBBBBB", kind: "post", url: "https://www.instagram.com/p/BBBBBBBBBBB/", mediaId: "2" },
+      { id: "AAAAAAAAAAA", kind: "reel", url: "https://www.instagram.com/reel/AAAAAAAAAAA/", mediaId: "1", author: "chef.maria", caption: "Crispy tacos", igCollections: ["c1"] },
+      { id: "BBBBBBBBBBB", kind: "post", url: "https://www.instagram.com/p/BBBBBBBBBBB/", mediaId: "2", igCollections: ["c1", "c2"] },
     ]);
     expect(result.collections).toEqual([
       { name: "Recipes", instagramId: "c1", items: ["AAAAAAAAAAA", "BBBBBBBBBBB"] },
@@ -143,5 +143,24 @@ describe("fromInstagramRead", () => {
     ]);
     expect(library.instagram).toEqual({ userId: "42", username: "ryan" });
     expect(summary).toEqual({ added: 1, updated: 1, collectionsAdded: 1 });
+  });
+});
+
+describe("collectionsFromLibrary", () => {
+  it("builds collections from names that arrive after the posts", () => {
+    const saved: InstagramMedia[] = [
+      { pk: "1", code: "AAAAAAAAAAA", kind: "post", author: null, caption: null, image: null, collectionIds: ["c1"] },
+      { pk: "2", code: "BBBBBBBBBBB", kind: "post", author: null, caption: null, image: null, collectionIds: ["c1", "c2"] },
+      { pk: "3", code: "CCCCCCCCCCC", kind: "post", author: null, caption: null, image: null, collectionIds: [] },
+    ];
+    // An import whose collection names couldn't be read: no collections yet.
+    const lib = mergeImport(emptyLibrary(), fromInstagramRead({ account: { userId: "1", username: null }, saved, collections: [] })).library;
+    expect(lib.collections).toEqual([]);
+    const { library } = mergeImport(lib, collectionsFromLibrary(lib, [{ id: "c1", name: "Recipes" }, { id: "c2", name: "Travel" }]));
+    expect(library.collections.map((c) => [c.name, c.instagramId, c.items])).toEqual([
+      ["Recipes", "c1", ["AAAAAAAAAAA", "BBBBBBBBBBB"]],
+      ["Travel", "c2", ["BBBBBBBBBBB"]],
+    ]);
+    expect(library.order).toEqual(lib.order);
   });
 });

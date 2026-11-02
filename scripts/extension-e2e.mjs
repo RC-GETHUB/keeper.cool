@@ -121,10 +121,10 @@ async function mockInstagram(context) {
     const acct = uid === OTHER_ID ? second : ig;
 
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
-    // Like Ryan's account, the second one gets no username from user info, only from its account settings.
+    // Like Ryan's account, the second one gets no username from Instagram at all.
     if (info && info[1] === OTHER_ID) return route.fulfill({ status: 404, contentType: "text/html", body: "<!DOCTYPE html><html>Page not found</html>" });
     if (info) return json(`{"user":{"username":"${ig.username}"},"status":"ok"}`);
-    if (path === "/api/v1/accounts/edit/web_form_data/" && acct === second) return json(`{"form_data":{"username":"${second.username}"},"status":"ok"}`);
+
     // The first time, fail part-way through the saved list, like Instagram dropping a session.
     // And once, Instagram's own "572" (busy): Keeper should wait and retry by itself.
     if (path === "/api/v1/feed/saved/posts/" && url.searchParams.get("max_id") === "40" && ig.busyOnce) {
@@ -337,9 +337,14 @@ async function run() {
     await page.bringToFront();
     await page.getByRole("button", { name: "Import", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
-    await page.getByRole("button", { name: "New library for @second.account" }).click({ timeout: 30_000 });
+    await page.getByRole("button", { name: "New library for this account" }).click({ timeout: 30_000 });
     await page.getByText(/Added 5 bookmarks/).waitFor({ timeout: 30_000 });
     check(true, "imports another account into its own library, after asking");
+    // Instagram never said the username, so Keeper asks for it to read the collections.
+    await page.getByLabel("What's your Instagram username?").fill("@second.account");
+    await page.getByRole("button", { name: "Get collections" }).click();
+    await page.getByText("Added 1 collection.").waitFor({ timeout: 60_000 });
+    check(true, "asks for the username when Instagram won't say it, then gets the collections in seconds");
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
