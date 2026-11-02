@@ -61,8 +61,9 @@ Lets people organize their own Instagram saved posts in keeper.cool: it reads th
 **Remote code:** No, the extension does not use remote code.
 
 **Data usage (tick):**
+- Personally identifiable information: yes (the user's own Instagram username and account id, kept on their device to keep each account's library apart)
 - Website content: yes (the user's saved posts: links, captions, usernames, cover images)
-- Everything else (personally identifiable info, health, financial, authentication, personal communications, location, web history, user activity): no
+- Everything else (health, financial, authentication, personal communications, location, web history, user activity): no
 
 **Certify:** not sold to third parties; not used or transferred for purposes unrelated to the single purpose; not used for creditworthiness or lending.
 
