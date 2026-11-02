@@ -222,6 +222,27 @@
     },
   };
 
+  // Collection names Instagram's own page received (see sniff.js), kept per account for Keeper.
+  const NAMES_KEY = "collectionNames";
+  window.addEventListener("message", async (event) => {
+    if (event.source !== window || !event.data || event.data.__keeper !== "collections" || !alive()) return;
+    const userId = cookie("ds_user_id");
+    const pairs = Array.isArray(event.data.pairs) ? event.data.pairs : [];
+    if (!userId || !pairs.length) return;
+    try {
+      const all = (await chrome.storage.local.get(NAMES_KEY))[NAMES_KEY] || {};
+      const mine = all[userId] || { names: {}, paths: [] };
+      for (const [id, name] of pairs) if (/^\d{5,}$/.test(id) && typeof name === "string") mine.names[id] = name.slice(0, 200);
+      mine.paths = [...new Set([...(mine.paths || []), ...(event.data.paths || [])])].slice(-10);
+      mine.at = Date.now();
+      all[userId] = mine;
+      await chrome.storage.local.set({ [NAMES_KEY]: all });
+    } catch {
+      // The extension was reloaded; this page's copy is retired.
+    }
+  });
+  window.postMessage({ __keeper: "hello" }, location.origin);
+
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id || !message || !ops[message.op]) return false;
     ops[message.op](message.args || {}).then(

@@ -50,9 +50,7 @@ export function CollectionsFix({
       <label htmlFor="ig-username" className="block font-medium">
         What&apos;s your Instagram username?
       </label>
-      <p className="text-xs text-neutral-500">
-        Instagram didn&apos;t say, and Keeper needs it to read your collections. It&apos;s the name after instagram.com/.
-      </p>
+      <p className="text-xs text-neutral-500">Keeper reads your collections off its Saved page. It&apos;s the name after instagram.com/.</p>
       <div className="flex gap-2">
         <input
           id="ig-username"
@@ -66,7 +64,7 @@ export function CollectionsFix({
           {state.busy ? <Loader2 className="size-4 animate-spin" /> : <FolderSearch className="size-4" />} Get collections
         </button>
       </div>
-      {state.busy && <p className="text-xs text-neutral-500">Reading your Saved page (a background tab opens for a moment)…</p>}
+      {state.busy && <p className="text-xs text-neutral-500">Reading your Saved page (a small Instagram window opens for a moment)…</p>}
       {state.error && <p className="text-xs text-red-600 dark:text-red-400">{state.error}</p>}
     </form>
   );

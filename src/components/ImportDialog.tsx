@@ -250,9 +250,11 @@ export function ImportDialog({
                 {w}
               </p>
             ))}
-            {status.source === "instagram" && status.result.collections.length === 0 && !status.result.account?.username && (
-              <CollectionsFix initial={usernameHint} onGetCollections={onGetCollections} />
-            )}
+            {status.source === "instagram" &&
+              status.result.collections.length === 0 &&
+              status.result.bookmarks.some((b) => b.igCollections?.length) && (
+                <CollectionsFix initial={status.result.account?.username ?? usernameHint} onGetCollections={onGetCollections} />
+              )}
             {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel hint={hint} />}
             <div className="flex justify-end">
               <button type="button" onClick={onClose} className={primaryButton}>

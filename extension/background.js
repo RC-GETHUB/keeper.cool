@@ -117,26 +117,50 @@ async function igRead(op, args, pace, emit, onRetry) {
  * appear), and the tab is closed. Used when Instagram won't hand over the
  * collection list directly.
  */
-async function collectionsFromSavedPage(username) {
+/** Collection names Instagram's own pages received for this account (gathered by sniff.js). */
+async function storedNames(userId) {
+  const all = (await chrome.storage.local.get("collectionNames")).collectionNames || {};
+  return all[String(userId)] || { names: {}, paths: [] };
+}
+
+/**
+ * Reads the collections off the account's Saved page, the way the user sees
+ * them: from its links, and from what the page itself received. Opens the
+ * page in a small window (a hidden tab doesn't load more as it scrolls) and
+ * closes it after. `details` says what happened, for the check report.
+ */
+async function readSavedPage(username, userId) {
   const url = `https://www.instagram.com/${username}/saved/`;
-  // Use the Saved page if it's already open; otherwise open one and close it after.
   const [open] = await chrome.tabs.query({ url: `${url}*` });
-  const tab = open || (await chrome.tabs.create({ url, active: false }));
+  let tabId = open && open.id;
+  let windowId = null;
+  if (!open) {
+    const win = await chrome.windows.create({ url, type: "popup", focused: true, width: 480, height: 820 });
+    windowId = win.id;
+    tabId = win.tabs && win.tabs[0] && win.tabs[0].id;
+  }
+  const details = { opened: open ? "tab already open" : "window" };
   try {
     // A new tab reports "loaded" for its blank page first; wait for Instagram's page itself.
     for (let i = 0; i < 60; i++) {
-      const current = await chrome.tabs.get(tab.id);
+      const current = await chrome.tabs.get(tabId);
+      details.url = (current.url || "").replace(/^https:\/\/www\.instagram\.com/, "");
       if (current.status === "complete" && (current.url || "").startsWith("https://www.instagram.com/")) break;
       await sleep(500);
     }
     const [injection] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId },
       func: async () => {
         const found = new Map();
+        const hrefs = new Set();
         const read = () => {
+          let last = null;
           for (const link of document.querySelectorAll('a[href*="/saved/"]')) {
+            const href = link.getAttribute("href") || "";
+            if (hrefs.size < 8) hrefs.add(href);
+            last = link;
             // Collection links look like /<username>/saved/<name-slug>/<collection id>/
-            const match = (link.getAttribute("href") || "").match(/\/saved\/([^/?#]+)\/(\d{5,})\/?(?:[?#]|$)/);
+            const match = href.match(/\/saved\/([^/?#]+)\/(\d{5,})\/?(?:[?#]|$)/);
             if (!match || found.has(match[2])) continue;
             const text = (link.innerText || link.getAttribute("aria-label") || "")
               .split("\n")
@@ -144,26 +168,46 @@ async function collectionsFromSavedPage(username) {
               .filter(Boolean)[0];
             found.set(match[2], text || decodeURIComponent(match[1]).replace(/-/g, " "));
           }
+          return last;
         };
         // Wait for the page to draw its collections, then scroll until no new ones load.
         let quiet = 0;
         let last = -1;
-        for (let i = 0; i < 160; i++) {
-          read();
+        for (let i = 0; i < 240; i++) {
+          const lastLink = read();
           if (found.size > 0 && found.size === last) quiet++;
           else quiet = 0;
           last = found.size;
-          if (quiet >= 6 || (found.size === 0 && i >= 40)) break;
+          if (quiet >= 8 || (found.size === 0 && i >= 30)) break;
+          if (lastLink) lastLink.scrollIntoView({ block: "end" });
           window.scrollTo(0, document.documentElement.scrollHeight);
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
-        return [...found].map(([id, name]) => ({ id, name }));
+        return {
+          collections: [...found].map(([id, name]) => ({ id, name })),
+          title: document.title.slice(0, 80),
+          savedLinks: document.querySelectorAll('a[href*="/saved/"]').length,
+          sampleLinks: [...hrefs],
+        };
       },
     });
-    return (injection && injection.result) || [];
+    const page = (injection && injection.result) || { collections: [] };
+    Object.assign(details, { title: page.title, savedLinks: page.savedLinks, sampleLinks: page.sampleLinks, fromLinks: page.collections.length });
+    // Give the page's own data a moment to be stored, then add any names it received.
+    await sleep(800);
+    const byId = new Map(page.collections.map((c) => [c.id, c.name]));
+    const stored = userId ? await storedNames(userId) : { names: {}, paths: [] };
+    for (const [id, name] of Object.entries(stored.names)) if (!byId.has(id) || /^\d+$/.test(byId.get(id))) byId.set(id, name);
+    details.fromPageData = Object.keys(stored.names).length;
+    details.pageDataFrom = stored.paths;
+    return { collections: [...byId].map(([id, name]) => ({ id, name })), details };
   } finally {
-    if (!open) chrome.tabs.remove(tab.id).catch(() => {});
+    if (windowId != null) chrome.windows.remove(windowId).catch(() => {});
   }
+}
+
+async function collectionsFromSavedPage(username, userId) {
+  return (await readSavedPage(username, userId)).collections;
 }
 
 /**
@@ -195,8 +239,10 @@ async function diagnose(hint = {}) {
     return { collections: page.items.length, total: page.total, first: page.items.slice(0, 3).map((c) => c.name) };
   });
   await step("savedPage", async () => {
-    fromPage = account && account.username ? await collectionsFromSavedPage(account.username) : [];
-    return { collections: fromPage.length, first: fromPage.slice(0, 3).map((c) => c.name) };
+    if (!account || !account.username) return { skipped: "no username" };
+    const { collections, details } = await readSavedPage(account.username, account.userId);
+    fromPage = collections;
+    return { collections: fromPage.length, first: fromPage.slice(0, 3).map((c) => c.name), ...details };
   });
   if (fromPage[0]) {
     await step("collectionPosts", async () => {
@@ -264,7 +310,7 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
     collections.length = 0;
     // Some accounts don't get the list at all: read the collections off the Saved page instead.
     try {
-      if (account.username) collections.push(...(await collectionsFromSavedPage(account.username)));
+      if (account.username) collections.push(...(await collectionsFromSavedPage(account.username, account.userId)));
     } catch {
       // Falls through to the note below.
     }
@@ -732,7 +778,8 @@ async function handle(port, message) {
           const page = await ig("collectionsPage", { maxId: null });
           list = page.items;
         } catch {
-          list = username ? await collectionsFromSavedPage(username) : [];
+          const me = await ig("whoami");
+          list = username ? await collectionsFromSavedPage(username, me.userId) : [];
         }
         result = { collections: list };
         break;

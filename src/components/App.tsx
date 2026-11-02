@@ -49,6 +49,8 @@ import { syntheticImport } from "@/lib/synthetic";
 import type { Bookmark, ImportResult, InstagramAccount, Library } from "@/lib/types";
 import type { MergeSummary } from "@/lib/library/ops";
 import { AccountMenu } from "./AccountMenu";
+import { CollectionsFix } from "./CollectionsFix";
+import { DiagnosePanel } from "./DiagnosePanel";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
 import { PreviewPanel } from "./PreviewPanel";
@@ -264,6 +266,12 @@ export function App() {
   }, [lib, scope]);
 
   const duplicates = useMemo(() => findDuplicates(lib ?? emptyLibrary()), [lib?.bookmarks, lib?.collections, lib?.order]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Posts know which Instagram collections they're in, but the collections themselves didn't come in.
+  const collectionsMissing = useMemo(
+    () => Boolean(lib) && !lib!.collections.some((c) => c.instagramId) && Object.values(lib!.bookmarks).some((b) => b.igCollections?.length),
+    [lib?.bookmarks, lib?.collections], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
   const counts = useMemo(() => countLibrary(lib ?? emptyLibrary()), [lib?.order, lib?.collections, lib?.bookmarks]); // eslint-disable-line react-hooks/exhaustive-deps
   const ids = useMemo(
     () => (lib ? viewIds(lib, { scope, sort: "custom", query: deferredQuery, duplicates }) : []),
@@ -626,6 +634,40 @@ export function App() {
           <button type="button" onClick={() => location.reload()} className="rounded-md bg-amber-900 px-2.5 py-1 font-medium text-white dark:bg-amber-200 dark:text-amber-950">
             Reload
           </button>
+        </div>
+      )}
+      {collectionsMissing && extension.status === "ready" && !importRunning && (
+        <div role="status" className="flex flex-wrap items-center justify-center gap-3 bg-accent-soft px-4 py-2 text-sm dark:bg-accent/15">
+          Your Instagram collections aren&apos;t in Keeper yet.
+          <button type="button" onClick={() => setCollectionsOpen(true)} className={primaryButton}>
+            Get collections
+          </button>
+        </div>
+      )}
+      {collectionsOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={() => setCollectionsOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Get your Instagram collections"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl dark:bg-neutral-900"
+          >
+            <h2 className="text-lg font-semibold">Get your Instagram collections</h2>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Your posts already know which collections they&apos;re in. Keeper only needs the collections&apos; names, from your
+              Saved page: a small Instagram window opens for a moment and closes by itself.
+            </p>
+            <CollectionsFix initial={identityOf(lib).username} onGetCollections={getCollections} />
+            <DiagnosePanel
+              hint={lib.instagram?.userId && lib.instagram.username ? { userId: lib.instagram.userId, username: lib.instagram.username } : null}
+            />
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setCollectionsOpen(false)} className={ghostButton}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
       <div className="flex min-h-0 flex-1">

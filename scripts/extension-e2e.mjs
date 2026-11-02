@@ -55,6 +55,8 @@ const byPk = new Map(posts.map((p) => [p.pk, p]));
 for (const p of otherPosts) p.collectionIds = [];
 otherPosts[0].collectionIds = ["17900000000000009"];
 otherPosts[2].collectionIds = ["17900000000000009"];
+// A collection the Saved page only gets in its own data (no link drawn), like a list further down the page.
+otherPosts[3].collectionIds = ["17900000000000017"];
 const second = {
   username: "second.account",
   saved: otherPosts.map((p) => p.code),
@@ -110,8 +112,12 @@ async function mockInstagram(context) {
       return route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: `<html><body><a href="/${second.username}/saved/all-posts/">All posts</a><div id="c"></div><script>setTimeout(()=>{document.getElementById("c").innerHTML=${JSON.stringify(links)}},700)</script></body></html>`,
+        body: `<html><body><a href="/${second.username}/saved/all-posts/">All posts</a><div id="c"></div><script>setTimeout(()=>{document.getElementById("c").innerHTML=${JSON.stringify(links)}},700);fetch("/graphql/query",{method:"POST"}).then((r)=>r.text())</script></body></html>`,
       });
+    }
+    // What the Saved page's own code asks for: ids as bare (too-long) numbers, like Instagram sends them.
+    if (path === "/graphql/query") {
+      return json('{"data":{"xdt_api__v1__collections__list":{"items":[{"collection_id":17900000000000017,"collection_name":"Weekend \\u2600","collection_type":"MEDIA"},{"collection_id":17900000000000099,"collection_name":"All posts","collection_type":"ALL_MEDIA_AUTO_COLLECTION"}]}}}');
     }
     if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Fake Instagram</body></html>" });
     if (request.method() === "POST" && request.headers()["x-csrftoken"] !== "csrf-test") return route.fulfill({ status: 403, body: "CSRF" });
@@ -367,6 +373,10 @@ async function run() {
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
     check((await page.getByTestId("count-Road Trips").textContent()) === "2", "collections read off the Saved page when Instagram won't list them");
+    check(
+      (await page.getByTestId("count-Weekend ☀").textContent()) === "1" && (await page.getByTestId("count-All posts").count()) === 0,
+      "collections the Saved page only received as data are found too, with their exact ids",
+    );
     if (process.env.SHOT2) {
       // Import this account again, slowly, to see "of about N" and the collection count.
       second.slow = true;
