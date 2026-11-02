@@ -55,10 +55,10 @@ const QUESTIONS: { q: string; a: React.ReactNode }[] = [
     ),
   },
   {
-    q: "Is syncing to Instagram safe?",
+    q: "Is exporting to Instagram safe?",
     a: (
       <>
-        Instagram can&apos;t move a saved post, so Sync unsaves and re-saves the posts that need to move, about one a minute, and stops
+        Instagram can&apos;t move a saved post, so Export unsaves and re-saves the posts that need to move, about one a minute, and stops
         if Instagram says to slow down. It only starts when you ask and tick the box. Instagram doesn&apos;t officially support tools
         like this, so try it on a spare account first.
       </>

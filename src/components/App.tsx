@@ -3,18 +3,18 @@
 import {
   ArrowDownToLine,
   ArrowUpToLine,
+  Copy,
+  Download,
   FolderMinus,
   FolderPlus,
   Loader2,
   Menu,
   Pause,
-  Copy,
   Puzzle,
+  RefreshCw,
   Search,
-  Send,
   Trash2,
   Undo2,
-  Upload,
   X,
 } from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -208,6 +208,8 @@ export function App() {
   useEffect(() => {
     const current = libRef.current;
     if (refreshed.current || !current?.instagram || current.order.length === 0 || extension.status !== "ready") return;
+    // An import that stopped part-way, or one running now, brings in the new saves itself.
+    if (current.importing || importRunning) return;
     if (extension.job && (extension.job.status === "running" || extension.job.status === "waiting")) return;
     refreshed.current = true;
     const known = (current.instagramOrder?.length ? current.instagramOrder : current.order).slice(0, 60);
@@ -225,7 +227,7 @@ export function App() {
         // Not logged in, offline or Instagram busy: try again next visit.
       },
     );
-  }, [lib, extension.status, extension.job]);
+  }, [lib, extension.status, extension.job, importRunning]);
 
   const commit = useCallback(
     (next: Library, message?: string) => {
@@ -274,6 +276,8 @@ export function App() {
   );
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  // Exporting to Instagram only makes sense once an import has finished.
+  const importDone = Boolean(lib?.lastImportAt && !lib.importing && !importRunning && lib.order.length);
   const counts = useMemo(() => countLibrary(lib ?? emptyLibrary()), [lib?.order, lib?.collections, lib?.bookmarks]); // eslint-disable-line react-hooks/exhaustive-deps
   const ids = useMemo(
     () => (lib ? viewIds(lib, { scope, sort: "custom", query: deferredQuery, duplicates }) : []),
@@ -487,6 +491,7 @@ export function App() {
   const streamEnd = (result: ImportResult): MergeSummary => {
     const session = stream.current;
     stream.current = null;
+    refreshed.current = true; // Just read everything: no need to look for new saves this visit.
     const merged = mergeImport(libRef.current!, result, { flagNew: session?.flagNew });
     // Counted from where the import began, including any earlier attempt that stopped part-way.
     const { importBase, ...library } = merged.library;
@@ -535,7 +540,7 @@ export function App() {
     const label = entry ? entryLabel(entry) : "that account";
     setToast({
       message: copied
-        ? `Copied ${plural(copied, "bookmark")} to ${label}${collectionName ? ` (in “${collectionName}”)` : ""}. Open ${label} and Sync to save them on Instagram.`
+        ? `Copied ${plural(copied, "bookmark")} to ${label}${collectionName ? ` (in “${collectionName}”)` : ""}. Open ${label} and Export to Instagram to save them there.`
         : `${label} already has ${ids.length === 1 ? "it" : "them"}.`,
       undo: false,
     });
@@ -623,27 +628,37 @@ export function App() {
         <button type="button" onClick={undo} disabled={!history.length} className={`${ghostButton} px-2 max-sm:hidden`} title="Undo (Ctrl/⌘ Z)" aria-label="Undo">
           <Undo2 className="size-4" />
         </button>
-        <button type="button" onClick={() => setImportOpen(true)} className={`${ghostButton} px-2 max-sm:ml-auto sm:px-3`} aria-label="Import">
-          {importRunning ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{" "}
-          <span className="hidden sm:inline">{importRunning ? "Importing…" : "Import"}</span>
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className={`${ghostButton} px-2 max-sm:ml-auto sm:px-3`}
+          aria-label="Import from Instagram"
+          data-testid="header-import"
+        >
+          {importRunning ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{" "}
+          <span className="hidden sm:inline">{importRunning ? "Importing…" : "Import from Instagram"}</span>
         </button>
         <div className="hidden lg:block">
           {extension.job && ["running", "waiting", "paused", "blocked"].includes(extension.job.status) ? (
-            <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Sync progress">
+            <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Export progress" data-testid="header-export">
               {extension.job.status === "blocked" || extension.job.status === "paused" ? (
                 <Pause className="size-4" />
               ) : (
-                <Loader2 className="size-4 animate-spin" />
+                <RefreshCw className="size-4 animate-spin" />
               )}
-              Syncing {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
-            </button>
-          ) : extension.status === "ready" ? (
-            <button type="button" onClick={() => setPushOpen(true)} disabled={empty} className={primaryButton}>
-              <Send className="size-4" /> Sync to Instagram
+              Exporting {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
             </button>
           ) : (
-            <button type="button" onClick={() => setGuideOpen(true)} className={primaryButton} title="Syncing to Instagram needs the Keeper extension">
-              <Send className="size-4" /> Sync to Instagram
+            // Lights up once an import has finished: there's nothing to send back before that.
+            <button
+              type="button"
+              onClick={() => (extension.status === "ready" ? setPushOpen(true) : setGuideOpen(true))}
+              disabled={!importDone}
+              className={`${primaryButton} group`}
+              title={importDone ? "Put your Keeper order on Instagram" : "Import from Instagram first"}
+              data-testid="header-export"
+            >
+              <RefreshCw className="size-4 transition-transform duration-700 group-enabled:group-hover:rotate-180" /> Export to Instagram
             </button>
           )}
         </div>
@@ -1183,7 +1198,7 @@ function Welcome({
     : [
         { label: "Add Keeper to Chrome", done: ready },
         { label: "Bring in your saves", done: false },
-        { label: "Arrange them, then sync to Instagram", done: false },
+        { label: "Arrange them, then export to Instagram", done: false },
       ];
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
@@ -1209,15 +1224,15 @@ function Welcome({
         {phone && !ready ? (
           <>
             <button type="button" onClick={onExport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
-              <Upload className="size-5" /> Bring in your saves
+              <Download className="size-5" /> Bring in your saves
             </button>
             <p className="mt-3 text-sm text-neutral-500">
-              Tip: on a computer with Chrome, the Keeper extension does this in one click, and can sync your order back to Instagram.
+              Tip: on a computer with Chrome, the Keeper extension does this in one click, and can export your order back to Instagram.
             </p>
           </>
         ) : ready ? (
           <button type="button" onClick={onImport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
-            <Upload className="size-5" /> Import from Instagram
+            <Download className="size-5" /> Import from Instagram
           </button>
         ) : (
           <button type="button" onClick={onExtension} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>

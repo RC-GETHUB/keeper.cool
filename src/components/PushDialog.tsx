@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, Send, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { controlPush, ExtensionError, readInstagram, startPush, type ExtensionState, type JobSummary, type ReadProgress } from "@/lib/extension";
 import { fromInstagramRead, type InstagramRead } from "@/lib/instagram-read";
@@ -72,7 +72,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
       const started = await startPush(plan.steps, read.account);
       setStartedId(started.id);
     } catch (e) {
-      setStage({ stage: "error", message: e instanceof Error ? e.message : "Couldn't start syncing." });
+      setStage({ stage: "error", message: e instanceof Error ? e.message : "Couldn't start exporting." });
     }
   };
 
@@ -87,7 +87,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id="push-title" className="text-lg font-semibold">
-            Sync to Instagram
+            Export to Instagram
           </h2>
           <button type="button" onClick={onClose} className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
             <X className="size-5" />
@@ -99,7 +99,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
         ) : stage.stage === "intro" || stage.stage === "error" ? (
           <div className="space-y-4 text-sm">
             <p className="text-neutral-700 dark:text-neutral-300">
-              Sync puts your Keeper order on Instagram, so your Saved page there matches. It works slowly in the background (about a
+              Export puts your Keeper order on Instagram, so your Saved page there matches. It works slowly in the background (about a
               post a minute) to keep your account safe. Keep Chrome open while it runs; you can pause any time.
             </p>
             <details className="group rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
@@ -200,7 +200,7 @@ function PlanView({
               : `Most of this library isn't saved on ${handle(read.account)}.`}
           </p>
           <p>
-            To sync this library, switch Instagram to its account first. Or carry on and Keeper will save this whole library into{" "}
+            To export this library, switch Instagram to its account first. Or carry on and Keeper will save this whole library into{" "}
             {handle(read.account)} in your order (posts from private accounts it can&apos;t see are skipped).
           </p>
           <label className="flex items-start gap-2">
@@ -240,7 +240,7 @@ function PlanView({
         </button>
         {!nothing && (
           <button type="button" onClick={onStart} disabled={copy && !copyConsent} className={primaryButton}>
-            <Send className="size-4" /> Start sync
+            <RefreshCw className="size-4" /> Start export
           </button>
         )}
       </div>
@@ -307,7 +307,7 @@ function JobView({ job, onClose }: { job: JobSummary; onClose: () => void }) {
       <div className="flex flex-wrap justify-end gap-2">
         {(active || stopped) && (
           <button type="button" onClick={() => act("cancel")} disabled={busy} className={`${ghostButton} text-red-600 dark:text-red-400`}>
-            Stop sync
+            Stop export
           </button>
         )}
         {active && (

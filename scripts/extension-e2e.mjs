@@ -228,7 +228,8 @@ async function run() {
 
     console.log("Import:");
     // On the welcome screen the button starts the import straight away.
-    await page.getByRole("button", { name: "Import from Instagram" }).click();
+    check(await page.getByTestId("header-export").isDisabled(), "Export to Instagram stays off until an import is done");
+    await page.getByRole("main").getByRole("button", { name: "Import from Instagram" }).click();
     await page.getByRole("button", { name: "Log in to Instagram" }).waitFor({ timeout: 30_000 });
     check(true, "asks to log in to Instagram when logged out");
     const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
@@ -290,15 +291,15 @@ async function run() {
     const last = posts[44].code;
     await page.locator(`[data-id="${last}"] input[type=checkbox]`).check();
     await page.getByRole("button", { name: "Top", exact: true }).click();
-    await page.getByRole("button", { name: "Sync to Instagram" }).click();
+    await page.getByTestId("header-export").click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByText("posts will move on Instagram").waitFor();
     check((await page.locator("p.text-2xl").textContent()) === "1", "plan re-saves just the 1 moved post");
     const before = ig.calls.length;
-    await page.getByRole("button", { name: "Start sync" }).click();
+    await page.getByRole("button", { name: "Start export" }).click();
     await page.getByText("Finished").waitFor({ timeout: 30_000 }).catch(async () => {
-      await page.getByRole("button", { name: /Syncing/ }).click();
+      await page.getByRole("button", { name: /Exporting/ }).click();
       await page.getByText("Finished").waitFor({ timeout: 30_000 });
     });
     check(ig.saved[0] === last, "the moved post is now first on Instagram");
@@ -315,11 +316,11 @@ async function run() {
         .map((r) => r.getAttribute("data-id"));
       return ids;
     });
-    await page.getByRole("button", { name: "Sync to Instagram" }).click();
+    await page.getByTestId("header-export").click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByText("posts will move on Instagram").waitFor();
-    await page.getByRole("button", { name: "Start sync" }).click();
+    await page.getByRole("button", { name: "Start export" }).click();
     await page.getByText("Finished").waitFor({ timeout: 120_000 });
     check(
       JSON.stringify(ig.saved.slice(0, order.length)) === JSON.stringify(order),
@@ -350,7 +351,7 @@ async function run() {
     ig.saved.unshift(another.code);
     ig.collections.get("17900000000000001").items.unshift(another.code);
     const readsBefore = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).length;
-    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByTestId("header-import").click();
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
     await page.getByRole("button", { name: "Check for new saves" }).click({ timeout: 30_000 });
     await page.getByTestId("quick-result").waitFor({ timeout: 30_000 });
@@ -363,7 +364,7 @@ async function run() {
     check((await page.getByTestId("count-Recipes").textContent()) === "16", "the new save went into its collection too");
 
     console.log("A second Instagram account:");
-    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByTestId("header-import").click();
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
     await page.getByTestId("import-account").waitFor({ timeout: 30_000 });
     // Switch to the other account in Instagram's own window: Keeper notices without being told.
@@ -399,7 +400,7 @@ async function run() {
     if (process.env.SHOT2) {
       // Import this account again, slowly, to see "of about N" and the collection count.
       second.slow = true;
-      await page.getByRole("button", { name: "Import", exact: true }).click();
+      await page.getByTestId("header-import").click();
       await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
       await page.getByRole("button", { name: /Start import|Read everything again/ }).click();
       await page.getByTestId("import-count").waitFor();
@@ -426,11 +427,11 @@ async function run() {
 
     await context.clearCookies();
     await logIn(USER_ID);
-    await page.getByRole("button", { name: "Sync to Instagram" }).click();
+    await page.getByTestId("header-export").click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByText(/2 new to this account/).waitFor({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Start sync" }).click();
+    await page.getByRole("button", { name: "Start export" }).click();
     await page.getByText("Finished").waitFor({ timeout: 60_000 });
     if (!copied.every((c) => ig.saved.includes(c))) {
       console.log("CALLS:", ig.calls.slice(-8), "TOP:", ig.saved.slice(0, 3), "DIALOG:", await page.getByRole("dialog").innerText());
