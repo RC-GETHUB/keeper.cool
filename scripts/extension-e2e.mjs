@@ -343,6 +343,25 @@ async function run() {
     check((await page.locator("[role=listitem]").first().getAttribute("data-id")) === fresh.code, "it lands on top");
     check(await page.getByText("46 bookmarks").first().isVisible(), "total is now 46");
 
+    console.log("Importing again:");
+    const another = { code: "NEWPOST2xxx", pk: "3456789012345678998", author: "chef.maria", caption: "Saved a minute ago", reel: false, collectionIds: ["17900000000000001"] };
+    posts.push(another);
+    byPk.set(another.pk, another);
+    ig.saved.unshift(another.code);
+    ig.collections.get("17900000000000001").items.unshift(another.code);
+    const readsBefore = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).length;
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+    await page.getByRole("button", { name: "Check for new saves" }).click({ timeout: 30_000 });
+    await page.getByTestId("quick-result").waitFor({ timeout: 30_000 });
+    check(
+      (await page.getByTestId("quick-result").innerText()).startsWith("Added 1 new save") &&
+        ig.calls.filter((c) => c.includes("/feed/saved/posts/")).length - readsBefore === 1,
+      "offers a quick check for new saves, which reads one page instead of everything",
+    );
+    await page.getByRole("button", { name: "Done" }).click();
+    check((await page.getByTestId("count-Recipes").textContent()) === "16", "the new save went into its collection too");
+
     console.log("A second Instagram account:");
     await page.getByRole("button", { name: "Import", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
@@ -382,7 +401,7 @@ async function run() {
       second.slow = true;
       await page.getByRole("button", { name: "Import", exact: true }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
-      await page.getByRole("button", { name: "Start import" }).click();
+      await page.getByRole("button", { name: /Start import|Read everything again/ }).click();
       await page.getByTestId("import-count").waitFor();
       await page.waitForTimeout(1500);
       await page.getByRole("dialog").screenshot({ path: process.env.SHOT2 });

@@ -506,6 +506,18 @@ export function App() {
     return summary.collectionsAdded;
   };
 
+  /** Just the saves made since the last import, into the open library. */
+  const quickCheck = async (): Promise<number> => {
+    const current = libRef.current!;
+    const known = (current.instagramOrder?.length ? current.instagramOrder : current.order).slice(0, 60);
+    const read = await readNewSaves(known, rememberThumbs);
+    const latest = libRef.current!;
+    if (read.account.userId !== latest.instagram?.userId) throw new Error("Instagram in this browser is logged into a different account now.");
+    const { library, added } = mergeNewSaves(latest, read);
+    if (added) commit(library, `${plural(added, "new save")} from Instagram`);
+    return added;
+  };
+
   /** Copies bookmarks into another account's library, to be saved there by its next Sync. */
   const copyTo = async (id: string, ids: string[]) => {
     await flush();
@@ -573,7 +585,7 @@ export function App() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2.5 sm:gap-3 sm:px-4 dark:border-neutral-800">
+      <header className="flex flex-wrap items-center gap-2 border-b border-neutral-200 px-3 py-2.5 sm:gap-3 sm:px-4 dark:border-neutral-800">
         <button type="button" onClick={() => setDrawer(true)} className="rounded-md p-1.5 md:hidden" aria-label="Open collections">
           <Menu className="size-5" />
         </button>
@@ -583,7 +595,8 @@ export function App() {
           </span>
         </div>
         <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={() => addLibrary()} onRemove={removeLibrary} />
-        <label className="relative ml-auto flex max-w-md min-w-0 flex-1 items-center">
+        {/* On a phone the search gets its own row under the header. */}
+        <label className="relative order-last flex w-full items-center sm:order-none sm:ml-auto sm:w-auto sm:max-w-md sm:min-w-0 sm:flex-1">
           <Search className="pointer-events-none absolute left-2.5 size-4 text-neutral-400" />
           <input
             ref={searchRef}
@@ -601,10 +614,10 @@ export function App() {
             </button>
           )}
         </label>
-        <button type="button" onClick={undo} disabled={!history.length} className={`${ghostButton} px-2`} title="Undo (Ctrl/⌘ Z)" aria-label="Undo">
+        <button type="button" onClick={undo} disabled={!history.length} className={`${ghostButton} px-2 max-sm:hidden`} title="Undo (Ctrl/⌘ Z)" aria-label="Undo">
           <Undo2 className="size-4" />
         </button>
-        <button type="button" onClick={() => setImportOpen(true)} className={`${ghostButton} px-2 sm:px-3`} aria-label="Import">
+        <button type="button" onClick={() => setImportOpen(true)} className={`${ghostButton} px-2 max-sm:ml-auto sm:px-3`} aria-label="Import">
           {importRunning ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{" "}
           <span className="hidden sm:inline">{importRunning ? "Importing…" : "Import"}</span>
         </button>
@@ -947,6 +960,8 @@ export function App() {
           onRunningChange={onImportRunning}
           onGetCollections={getCollections}
           onShowExtension={() => setGuideOpen(true)}
+          libraryCount={lib.instagram && !lib.importing ? lib.order.length : 0}
+          onQuickCheck={quickCheck}
           extension={extension}
           autoStart={autoImport}
           onClose={() => {
@@ -1145,11 +1160,25 @@ function Welcome({
   onSample: (size: number) => void;
 }) {
   const ready = extension.status === "ready";
-  const steps = [
-    { label: "Add Keeper to Chrome", done: ready },
-    { label: "Bring in your saves", done: false },
-    { label: "Arrange them, then sync to Instagram", done: false },
-  ];
+  // The extension needs Chrome on a computer: on a phone, lead with Instagram's export instead.
+  // Worked out after the first render, so the page the server sent matches.
+  const [phone, setPhone] = useState(false);
+  const [bench, setBench] = useState(false);
+  useEffect(() => {
+    setPhone(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)));
+    setBench(new URLSearchParams(location.search).has("bench"));
+  }, []);
+  const steps = phone
+    ? [
+        { label: "Ask Instagram for a copy of your saves", done: false },
+        { label: "Bring the file into Keeper", done: false },
+        { label: "Sort, rename and file them your way", done: false },
+      ]
+    : [
+        { label: "Add Keeper to Chrome", done: ready },
+        { label: "Bring in your saves", done: false },
+        { label: "Arrange them, then sync to Instagram", done: false },
+      ];
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
       <div className="max-w-md text-center">
@@ -1171,7 +1200,16 @@ function Welcome({
             </li>
           ))}
         </ol>
-        {ready ? (
+        {phone && !ready ? (
+          <>
+            <button type="button" onClick={onExport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
+              <Upload className="size-5" /> Bring in your saves
+            </button>
+            <p className="mt-3 text-sm text-neutral-500">
+              Tip: on a computer with Chrome, the Keeper extension does this in one click, and can sync your order back to Instagram.
+            </p>
+          </>
+        ) : ready ? (
           <button type="button" onClick={onImport} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
             <Upload className="size-5" /> Import from Instagram
           </button>
@@ -1180,7 +1218,7 @@ function Welcome({
             <Puzzle className="size-5" /> Add Keeper to Chrome
           </button>
         )}
-        {!ready && (
+        {!ready && !phone && (
           <p className="mt-4 text-sm">
             <button type="button" onClick={onExport} className="font-medium text-accent underline-offset-2 hover:underline">
               On a phone or another browser? Upload Instagram&apos;s export instead
@@ -1190,16 +1228,21 @@ function Welcome({
         <div className="mt-8 text-xs text-neutral-500">
           Just looking?{" "}
           <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(500)}>
-            Try 500 sample bookmarks
-          </button>{" "}
-          ·{" "}
-          <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(10_000)}>
-            10,000
-          </button>{" "}
-          ·{" "}
-          <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(50_000)}>
-            50,000
+            Try it with sample bookmarks
           </button>
+          {bench && (
+            <>
+              {" "}
+              ·{" "}
+              <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(10_000)}>
+                10,000
+              </button>{" "}
+              ·{" "}
+              <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={() => onSample(50_000)}>
+                50,000
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

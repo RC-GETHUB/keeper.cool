@@ -49,6 +49,10 @@ interface Props {
   onRunningChange?: (running: boolean) => void;
   /** Opens the extension install guide over the app. */
   onShowExtension?: () => void;
+  /** Brings in just the saves made since the last import, into the open library. Resolves to how many. */
+  onQuickCheck?: () => Promise<number>;
+  /** How many posts the open library holds, for the open library's own account. */
+  libraryCount?: number;
 }
 
 type Status =
@@ -56,6 +60,8 @@ type Status =
   | { state: "reading" }
   /** Which Instagram account is about to be read: null while checking. */
   | { state: "confirm"; account: InstagramAccount | null; switching?: boolean }
+  /** Checked for saves made since the last import: null while checking. */
+  | { state: "quick"; added: number | null }
   | { state: "fetching"; live: LiveRead }
   | { state: "login"; waiting: boolean; message?: string }
   | { state: "done"; result: ImportResult; summary: MergeSummary; source: "file" | "instagram" }
@@ -78,6 +84,8 @@ export function ImportDialog({
   hidden,
   onRunningChange,
   onShowExtension,
+  onQuickCheck,
+  libraryCount = 0,
 }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
@@ -122,6 +130,16 @@ export function ImportDialog({
     setStatus({ state: "confirm", account: current, switching: true });
     try {
       setStatus({ state: "confirm", account: await switchInstagramAccount(current) });
+    } catch (e) {
+      failed(e);
+    }
+  };
+
+  const quickCheck = async () => {
+    if (!onQuickCheck) return;
+    setStatus({ state: "quick", added: null });
+    try {
+      setStatus({ state: "quick", added: await onQuickCheck() });
     } catch (e) {
       failed(e);
     }
@@ -229,7 +247,8 @@ export function ImportDialog({
                     : `on Instagram${status.result.account?.username ? ` (@${status.result.account.username})` : ""}`}
                 </li>
                 {status.summary.collectionsAdded > 0 && <li>{plural(status.summary.collectionsAdded, "new collection")}</li>}
-                {status.summary.updated > 0 && <li>{plural(status.summary.updated, "bookmark")} updated with new details</li>}
+                {/* On a first import every post is new; "updated" only means something on a later one. */}
+                {status.summary.updated > 0 && status.summary.added < status.result.bookmarks.length && <li>{plural(status.summary.updated, "bookmark")} updated with new details</li>}
                 {status.result.mergedDuplicates > 0 && (
                   <li>{plural(status.result.mergedDuplicates, "repeated entry", "repeated entries")} merged</li>
                 )}
@@ -307,7 +326,26 @@ export function ImportDialog({
                     known={status.account && hint?.userId === status.account.userId ? hint.username : null}
                     onStart={(account, username) => fromInstagram(username ? { userId: account.userId, username } : null)}
                     onSwitch={switchAccount}
+                    // A library of this very account already exists: checking for new saves takes seconds.
+                    quick={status.account && onQuickCheck && libraryCount > 0 && hint?.userId === status.account.userId ? { count: libraryCount, run: quickCheck } : null}
                   />
+                ) : status.state === "quick" ? (
+                  status.added === null ? (
+                    <p className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400" role="status">
+                      <Loader2 className="size-4 animate-spin text-accent" /> Looking for new saves…
+                    </p>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      <p className="rounded-lg bg-emerald-50 p-3 font-medium text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200" data-testid="quick-result">
+                        {status.added > 0 ? `Added ${plural(status.added, "new save")}. They're at the top.` : "No new saves. You're up to date."}
+                      </p>
+                      <div className="flex justify-end">
+                        <button type="button" onClick={onClose} className={primaryButton}>
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <button type="button" onClick={checkAccount} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
                     Import from Instagram
@@ -477,6 +515,7 @@ function ConfirmAccount({
   known,
   onStart,
   onSwitch,
+  quick,
 }: {
   account: InstagramAccount | null;
   switching: boolean;
@@ -484,6 +523,8 @@ function ConfirmAccount({
   known: string | null;
   onStart: (account: InstagramAccount, username: string | null) => void;
   onSwitch: (account: InstagramAccount) => void;
+  /** Offered when this account was imported before: just the new saves, in seconds. */
+  quick: { count: number; run: () => void } | null;
 }) {
   const [typed, setTyped] = useState(known ?? "");
   if (!account) {
@@ -538,9 +579,20 @@ function ConfirmAccount({
           />
         </div>
       )}
+      {quick && (
+        <div className="space-y-2">
+          <button type="button" onClick={quick.run} className={`${primaryButton} w-full justify-center py-2`}>
+            Check for new saves
+          </button>
+          <p className="text-xs text-neutral-500">
+            Takes a few seconds. Or read all {fmtCount.format(quick.count)} again (about {Math.max(1, Math.round(quick.count / 300))} min) if you
+            unsaved posts on Instagram or something looks out of date:
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className={`${primaryButton} flex-1 justify-center py-2`}>
-          Start import
+        <button type="submit" className={`${quick ? ghostButton + " border border-neutral-300 dark:border-neutral-700" : primaryButton} flex-1 justify-center py-2`}>
+          {quick ? "Read everything again" : "Start import"}
         </button>
         <button type="button" onClick={() => onSwitch(account)} className={ghostButton}>
           <ArrowLeftRight className="size-4" /> Use a different account
