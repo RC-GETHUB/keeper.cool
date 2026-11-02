@@ -28,7 +28,8 @@ export default function PrivacyPage() {
           <h2>What Keeper stores</h2>
           <p>
             For each saved post: its link and Instagram id, the username of who posted it, its caption, a small cover image, when you
-            saved it, and anything you add in Keeper (names, order, collections). This is kept in your browser&apos;s storage
+            saved it, and anything you add in Keeper (names, order, collections). For each Instagram account you import from, its
+            username and account number, to keep each account&apos;s library separate. This is kept in your browser&apos;s storage
             (IndexedDB) for keeper.cool. Deleting your library in Keeper, or clearing site data in your browser, removes it.
           </p>
         </section>
