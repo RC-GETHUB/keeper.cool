@@ -228,6 +228,14 @@ async function run() {
     const [popup] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Log in to Instagram" }).click()]);
     check(popup.url().startsWith("https://www.instagram.com/accounts/login"), "opens Instagram's own login page in a pop-up");
     await logIn();
+    // Several accounts can be signed in: Keeper says which one it's about to read, and reads nothing yet.
+    await page.getByTestId("import-account").waitFor({ timeout: 30_000 });
+    check(
+      (await page.getByTestId("import-account").innerText()).includes("@test.account") &&
+        !ig.calls.some((c) => c.includes("/feed/saved/posts/")),
+      "asks to confirm the account before reading anything",
+    );
+    await page.getByRole("button", { name: "Start import" }).click();
     if (process.env.SHOT) {
       await page.waitForTimeout(400);
       await page.getByRole("button", { name: "Log in to Instagram" }).click().catch(() => {});
@@ -242,6 +250,7 @@ async function run() {
     check(true, "shows what Instagram said when it stops part-way");
     const savedCallsBefore = ig.calls.filter((c) => c.includes("/feed/saved/posts/")).length;
     await page.getByRole("button", { name: "Log in to Instagram" }).click();
+    await page.getByRole("button", { name: "Start import" }).click({ timeout: 30_000 });
     await page.getByText(/Added 45 bookmarks/).waitFor({ timeout: 60_000 }).catch(async (e) => {
       console.log("DIALOG:", await page.getByRole("dialog").innerText().catch(() => "none"));
       console.log("ERRORS:", errors);
@@ -329,22 +338,31 @@ async function run() {
     check(await page.getByText("46 bookmarks").first().isVisible(), "total is now 46");
 
     console.log("A second Instagram account:");
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+    await page.getByTestId("import-account").waitFor({ timeout: 30_000 });
+    // Switch to the other account in Instagram's own window: Keeper notices without being told.
+    const [switchWindow] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Use a different account" }).click()]);
+    check(switchWindow.url().startsWith("https://www.instagram.com/"), "opens Instagram in a pop-up to switch accounts");
     await context.clearCookies();
     await logIn(OTHER_ID);
+    // Instagram never says this account's username, so Keeper asks for it before reading.
+    await page.getByLabel("Which account is this?").waitFor({ timeout: 30_000 });
+    check(switchWindow.isClosed(), "notices the switch and closes the pop-up");
     // Its Saved page is open in a tab (a tab the extension opened itself would load the real Instagram).
     const savedTab = await context.newPage();
     await savedTab.goto(`https://www.instagram.com/${second.username}/saved/`);
     await page.bringToFront();
-    await page.getByRole("button", { name: "Import", exact: true }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
-    await page.getByRole("button", { name: "New library for this account" }).click({ timeout: 30_000 });
+    await page.getByLabel("Which account is this?").fill("@second.account");
+    await page.getByRole("button", { name: "Start import" }).click();
+    await page.getByRole("button", { name: /New library for/ }).click({ timeout: 30_000 });
     await page.getByText(/Added 5 bookmarks/).waitFor({ timeout: 30_000 });
     check(true, "imports another account into its own library, after asking");
-    // Instagram never said the username, so Keeper asks for it to read the collections.
-    await page.getByLabel("What's your Instagram username?").fill("@second.account");
-    await page.getByRole("button", { name: "Get collections" }).click();
-    await page.getByText("Added 1 collection.").waitFor({ timeout: 60_000 });
-    check(true, "asks for the username when Instagram won't say it, then gets the collections in seconds");
+    check(
+      (await page.getByText("5 saved posts on Instagram (@second.account)").isVisible()) &&
+        (await page.getByLabel("What's your Instagram username?").count()) === 0,
+      "the username given at the start is used, so nothing is asked at the end",
+    );
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
@@ -354,6 +372,7 @@ async function run() {
       second.slow = true;
       await page.getByRole("button", { name: "Import", exact: true }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+      await page.getByRole("button", { name: "Start import" }).click();
       await page.getByTestId("import-count").waitFor();
       await page.waitForTimeout(1500);
       await page.getByRole("dialog").screenshot({ path: process.env.SHOT2 });

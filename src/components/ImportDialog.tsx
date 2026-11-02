@@ -1,13 +1,21 @@
 "use client";
 
-import { ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, FileArchive, Loader2, Lock, Puzzle, Upload, X, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ExtensionError, logInToInstagram, readInstagram, type ExtensionState, type UsernameHint } from "@/lib/extension";
+import {
+  ExtensionError,
+  instagramAccount,
+  logInToInstagram,
+  readInstagram,
+  switchInstagramAccount,
+  type ExtensionState,
+  type UsernameHint,
+} from "@/lib/extension";
 import { readExport } from "@/lib/import";
 import { fromInstagramRead, type InstagramMedia } from "@/lib/instagram-read";
 import type { MergeSummary } from "@/lib/library/ops";
 import type { Bookmark, ImportResult, InstagramAccount } from "@/lib/types";
-import { CollectionsFix } from "./CollectionsFix";
+import { CollectionsFix, cleanUsername } from "./CollectionsFix";
 import { DiagnosePanel } from "./DiagnosePanel";
 import { ImportProgress, type LiveRead } from "./ImportProgress";
 import { fmtCount, formatDate, ghostButton, plural, primaryButton } from "./ui";
@@ -44,6 +52,8 @@ interface Props {
 type Status =
   | { state: "idle" }
   | { state: "reading" }
+  /** Which Instagram account is about to be read: null while checking. */
+  | { state: "confirm"; account: InstagramAccount | null; switching?: boolean }
   | { state: "fetching"; live: LiveRead }
   | { state: "login"; waiting: boolean; message?: string }
   | { state: "done"; result: ImportResult; summary: MergeSummary; source: "file" | "instagram" }
@@ -84,7 +94,37 @@ export function ImportDialog({
     }
   };
 
-  const fromInstagram = async () => {
+  const failed = (e: unknown) => {
+    if (e instanceof ExtensionError && e.code === "login") {
+      setStatus({ state: "login", waiting: false, message: e.message });
+      return;
+    }
+    setStatus({
+      state: "error",
+      message: e instanceof ExtensionError || e instanceof Error ? e.message : "Something went wrong reading from Instagram.",
+    });
+  };
+
+  /** Several accounts can be signed in on instagram.com: say which one is about to be read first. */
+  const checkAccount = async () => {
+    setStatus({ state: "confirm", account: null });
+    try {
+      setStatus({ state: "confirm", account: await instagramAccount() });
+    } catch (e) {
+      failed(e);
+    }
+  };
+
+  const switchAccount = async (current: InstagramAccount) => {
+    setStatus({ state: "confirm", account: current, switching: true });
+    try {
+      setStatus({ state: "confirm", account: await switchInstagramAccount(current) });
+    } catch (e) {
+      failed(e);
+    }
+  };
+
+  const fromInstagram = async (chosen: UsernameHint | null) => {
     let live: LiveRead = { count: 0, total: null };
     const update = (patch: Partial<LiveRead>) => {
       live = { ...live, ...patch };
@@ -114,21 +154,14 @@ export function ImportDialog({
         } else if (p.phase === "retry") {
           update({ retryWait: p.wait });
         }
-      }, { hint });
+      }, { hint: chosen ?? hint });
       await (pages.chain ?? onStreamStart(read.account, []));
       const result = fromInstagramRead(read);
       setStatus({ state: "done", result, summary: onStreamEnd(result), source: "instagram" });
     } catch (e) {
       // Whatever arrived before the problem stays in the library, and a retry carries on from there.
       await pages.chain?.catch(() => undefined);
-      if (e instanceof ExtensionError && e.code === "login") {
-        setStatus({ state: "login", waiting: false, message: e.message });
-        return;
-      }
-      setStatus({
-        state: "error",
-        message: e instanceof ExtensionError || e instanceof Error ? e.message : "Something went wrong reading from Instagram.",
-      });
+      failed(e);
     }
   };
 
@@ -136,7 +169,7 @@ export function ImportDialog({
     setStatus({ state: "login", waiting: true });
     try {
       await logInToInstagram();
-      fromInstagram();
+      checkAccount();
     } catch (e) {
       setStatus({ state: "login", waiting: false, message: e instanceof Error ? e.message : undefined });
     }
@@ -146,7 +179,7 @@ export function ImportDialog({
   useEffect(() => {
     if (autoStart && hasExtension && !started.current) {
       started.current = true;
-      fromInstagram();
+      checkAccount();
     }
   });
 
@@ -261,8 +294,17 @@ export function ImportDialog({
                     )}
                     <p className="text-xs text-neutral-500">You type your password into Instagram itself; Keeper never sees it.</p>
                   </div>
+                ) : status.state === "confirm" ? (
+                  <ConfirmAccount
+                    key={status.account?.userId ?? "checking"}
+                    account={status.account}
+                    switching={Boolean(status.switching)}
+                    known={status.account && hint?.userId === status.account.userId ? hint.username : null}
+                    onStart={(account, username) => fromInstagram(username ? { userId: account.userId, username } : null)}
+                    onSwitch={switchAccount}
+                  />
                 ) : (
-                  <button type="button" onClick={fromInstagram} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
+                  <button type="button" onClick={checkAccount} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
                     Import from Instagram
                   </button>
                 )}
@@ -419,5 +461,86 @@ function DateRangeHint({ result }: { result: ImportResult }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** "Import from @name?" before anything is read, with a way to switch accounts, or asks the username when Instagram won't say it. */
+function ConfirmAccount({
+  account,
+  switching,
+  known,
+  onStart,
+  onSwitch,
+}: {
+  account: InstagramAccount | null;
+  switching: boolean;
+  /** The username Keeper already knows for this very account. */
+  known: string | null;
+  onStart: (account: InstagramAccount, username: string | null) => void;
+  onSwitch: (account: InstagramAccount) => void;
+}) {
+  const [typed, setTyped] = useState(known ?? "");
+  if (!account) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400" role="status">
+        <Loader2 className="size-4 animate-spin text-accent" /> Checking which Instagram account is logged in…
+      </p>
+    );
+  }
+  if (switching) {
+    return (
+      <div className="space-y-1 text-sm" role="status">
+        <p className="flex items-center gap-2">
+          <Loader2 className="size-4 animate-spin text-accent" /> Waiting for you to switch accounts…
+        </p>
+        <p className="text-xs text-neutral-500">
+          In the Instagram window, open your profile menu, choose <strong>Switch accounts</strong> and pick the account. Keeper
+          notices straight away. Or close the window when you&apos;re done.
+        </p>
+      </div>
+    );
+  }
+  const username = account.username ?? (cleanUsername(typed) || null);
+  return (
+    <form
+      className="space-y-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onStart(account, username);
+      }}
+    >
+      {account.username ? (
+        <p data-testid="import-account">
+          Import the saved posts of <strong>@{account.username}</strong>?
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          <label htmlFor="import-username" className="block font-medium">
+            Which account is this?
+          </label>
+          <p className="text-xs text-neutral-500">
+            Instagram didn&apos;t say which of your accounts is logged in. Type its username (the name after instagram.com/) so
+            Keeper can name this library and bring in your collections.
+          </p>
+          <input
+            id="import-username"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="yourname"
+            autoComplete="off"
+            className="w-full rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 outline-none focus:border-accent dark:border-neutral-700"
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={`${primaryButton} flex-1 justify-center py-2`}>
+          Start import
+        </button>
+        <button type="button" onClick={() => onSwitch(account)} className={ghostButton}>
+          <ArrowLeftRight className="size-4" /> Use a different account
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">Keeper reads whichever account is active on instagram.com in this browser.</p>
+    </form>
   );
 }

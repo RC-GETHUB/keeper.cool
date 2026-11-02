@@ -4,6 +4,11 @@ import { FolderSearch, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { plural, primaryButton } from "./ui";
 
+/** "@name", "instagram.com/name/" or "name" → "name". */
+export function cleanUsername(input: string): string {
+  return input.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?instagram\.com\//, "").replace(/\/.*$/, "");
+}
+
 /**
  * When Instagram won't say which account is logged in, Keeper can't open its
  * Saved page to read collection names. Asking for the username fixes that,
@@ -32,7 +37,7 @@ export function CollectionsFix({
       className="space-y-2 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800"
       onSubmit={async (e) => {
         e.preventDefault();
-        const name = username.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?instagram\.com\//, "").replace(/\/.*$/, "");
+        const name = cleanUsername(username);
         if (!name) return;
         setState({ busy: true });
         try {

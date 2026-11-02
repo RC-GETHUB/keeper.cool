@@ -222,6 +222,39 @@ export function logInToInstagram(): Promise<InstagramAccount> {
   });
 }
 
+/**
+ * Opens instagram.com in a small window so the user can switch to another
+ * of their accounts (profile menu → Switch accounts). Resolves with the
+ * account logged in once it changes, or when the window is closed.
+ */
+export function switchInstagramAccount(current: InstagramAccount): Promise<InstagramAccount> {
+  const width = 460;
+  const height = 720;
+  const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+  const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+  const popup = window.open("https://www.instagram.com/", "keeper-instagram-switch", `popup,width=${width},height=${height},left=${left},top=${top}`);
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      const closed = !popup || popup.closed;
+      try {
+        const account = await instagramAccount();
+        if (account.userId !== current.userId || closed) {
+          clearInterval(timer);
+          popup?.close();
+          resolve(account);
+        }
+      } catch (error) {
+        // Logged out part-way through switching: wait unless the window's gone.
+        if (closed || Date.now() - started > 10 * 60_000) {
+          clearInterval(timer);
+          reject(error);
+        }
+      }
+    }, 2000);
+  });
+}
+
 /** The account's collection names and ids (from the list, or the Saved page of `username`). */
 export function readCollections(username: string | null): Promise<{ collections: { id: string; name: string }[] }> {
   return request("collections", { username });
