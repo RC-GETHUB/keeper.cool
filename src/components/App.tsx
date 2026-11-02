@@ -51,6 +51,7 @@ import type { MergeSummary } from "@/lib/library/ops";
 import { AccountMenu } from "./AccountMenu";
 import { CollectionsFix } from "./CollectionsFix";
 import { DiagnosePanel } from "./DiagnosePanel";
+import { ExtensionGuide } from "./ExtensionGuide";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
 import { PreviewPanel } from "./PreviewPanel";
@@ -272,6 +273,7 @@ export function App() {
     [lib?.bookmarks, lib?.collections], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const counts = useMemo(() => countLibrary(lib ?? emptyLibrary()), [lib?.order, lib?.collections, lib?.bookmarks]); // eslint-disable-line react-hooks/exhaustive-deps
   const ids = useMemo(
     () => (lib ? viewIds(lib, { scope, sort: "custom", query: deferredQuery, duplicates }) : []),
@@ -621,9 +623,9 @@ export function App() {
               <Send className="size-4" /> Sync to Instagram
             </button>
           ) : (
-            <a href="/extension" className={primaryButton} title="Syncing to Instagram needs the Keeper extension">
+            <button type="button" onClick={() => setGuideOpen(true)} className={primaryButton} title="Syncing to Instagram needs the Keeper extension">
               <Send className="size-4" /> Sync to Instagram
-            </a>
+            </button>
           )}
         </div>
       </header>
@@ -644,6 +646,7 @@ export function App() {
           </button>
         </div>
       )}
+      {guideOpen && <ExtensionGuide onClose={() => setGuideOpen(false)} />}
       {collectionsOpen && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={() => setCollectionsOpen(false)}>
           <div
@@ -706,6 +709,7 @@ export function App() {
               lib.instagramCollectionOrder ? () => commit(restoreCollectionOrder(lib), "Collections back in Instagram's order") : undefined
             }
             onBackup={backup}
+            onExtension={() => setGuideOpen(true)}
             onReset={reset}
           />
         </aside>
@@ -719,6 +723,7 @@ export function App() {
                 setImportOpen(true);
               }}
               onExport={() => setImportOpen(true)}
+              onExtension={() => setGuideOpen(true)}
               onSample={loadSample}
             />
           ) : (
@@ -941,6 +946,7 @@ export function App() {
           hidden={!importOpen}
           onRunningChange={onImportRunning}
           onGetCollections={getCollections}
+          onShowExtension={() => setGuideOpen(true)}
           extension={extension}
           autoStart={autoImport}
           onClose={() => {
@@ -1129,11 +1135,13 @@ function Welcome({
   extension,
   onImport,
   onExport,
+  onExtension,
   onSample,
 }: {
   extension: ExtensionState;
   onImport: () => void;
   onExport: () => void;
+  onExtension: () => void;
   onSample: (size: number) => void;
 }) {
   const ready = extension.status === "ready";
@@ -1168,9 +1176,9 @@ function Welcome({
             <Upload className="size-5" /> Import from Instagram
           </button>
         ) : (
-          <a href="/extension" className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
+          <button type="button" onClick={onExtension} className={`${primaryButton} mt-6 px-5 py-2.5 text-base`}>
             <Puzzle className="size-5" /> Add Keeper to Chrome
-          </a>
+          </button>
         )}
         {!ready && (
           <p className="mt-4 text-sm">

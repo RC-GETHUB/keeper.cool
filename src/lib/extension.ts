@@ -50,6 +50,7 @@ type Listener = (message: Record<string, unknown>) => void;
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; onEvent?: Listener }>();
 const jobListeners = new Set<(job: JobSummary | null) => void>();
 const staleListeners = new Set<() => void>();
+const installedListeners = new Set<() => void>();
 let listening = false;
 
 function listen() {
@@ -66,6 +67,11 @@ function listen() {
         entry.reject(new ExtensionError("stale", "The Keeper extension was updated. Reload this page to reconnect."));
       }
       for (const fn of staleListeners) fn();
+      return;
+    }
+    if (data.event === "installed") {
+      // Installed (or connected) after this page loaded.
+      for (const fn of installedListeners) fn();
       return;
     }
     if (data.event === "job") {
@@ -121,6 +127,9 @@ export function useExtension(): ExtensionState {
     const onStale = () => alive && setState((s) => ({ ...s, status: "stale" }));
     jobListeners.add(onJob);
     staleListeners.add(onStale);
+    // Installed while this page is open: the extension connects to it straight away.
+    const onInstalled = () => alive && check();
+    installedListeners.add(onInstalled);
 
     const check = () => {
       if (!installedVersion()) return false;
@@ -149,6 +158,7 @@ export function useExtension(): ExtensionState {
       alive = false;
       jobListeners.delete(onJob);
       staleListeners.delete(onStale);
+      installedListeners.delete(onInstalled);
       clearInterval(timer);
       clearInterval(poll);
     };

@@ -22,6 +22,8 @@ interface Props {
   /** Puts the collections back in Instagram's order (when Keeper knows it). */
   onRestoreCollectionOrder?: () => void;
   onBackup: () => void;
+  /** Opens the extension install guide over the app. */
+  onExtension: () => void;
   onReset: () => void;
 }
 
@@ -114,6 +116,7 @@ export function Sidebar({
   onOrderCollections,
   onRestoreCollectionOrder,
   onBackup,
+  onExtension,
   onReset,
 }: Props) {
   const [adding, setAdding] = useState(false);
@@ -347,9 +350,9 @@ export function Sidebar({
           <Trash2 className="size-3.5" /> Empty this library
         </button>
         <div className="flex gap-3 px-2.5 pt-1 text-[11px] text-neutral-500">
-          <a href="/extension" className="hover:underline">
+          <button type="button" onClick={onExtension} className="hover:underline">
             Extension
-          </a>
+          </button>
           <a href="/privacy" className="hover:underline">
             Privacy
           </a>

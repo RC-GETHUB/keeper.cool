@@ -47,6 +47,8 @@ interface Props {
   /** Kept mounted (hidden) while an import runs, so reopening shows its progress. */
   hidden?: boolean;
   onRunningChange?: (running: boolean) => void;
+  /** Opens the extension install guide over the app. */
+  onShowExtension?: () => void;
 }
 
 type Status =
@@ -75,6 +77,7 @@ export function ImportDialog({
   onGetCollections,
   hidden,
   onRunningChange,
+  onShowExtension,
 }: Props) {
   const [status, setStatus] = useState<Status>({ state: "idle" });
   const [thumbs, setThumbs] = useState<{ done: number; total: number; finished: boolean } | null>(null);
@@ -312,9 +315,10 @@ export function ImportDialog({
                 )}
               </div>
             ) : (
-              <a
-                href="/extension"
-                className="flex items-start gap-3 rounded-xl border border-neutral-200 p-4 text-sm hover:border-accent dark:border-neutral-800"
+              <button
+                type="button"
+                onClick={onShowExtension}
+                className="flex w-full items-start gap-3 rounded-xl border border-neutral-200 p-4 text-left text-sm hover:border-accent dark:border-neutral-800"
               >
                 <Puzzle className="mt-0.5 size-5 shrink-0 text-accent" />
                 <span>
@@ -323,7 +327,7 @@ export function ImportDialog({
                     One click imports everything, with cover images and captions. For Chrome on a computer. Get it →
                   </span>
                 </span>
-              </a>
+              </button>
             )}
 
             {hasExtension && (

@@ -859,3 +859,14 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   run().then(reply, () => reply(null));
   return true;
 });
+
+// Content scripts only arrive in pages opened after installing. On a fresh
+// install, connect Keeper pages that are already open, so the install guide
+// turns green without a reload. (After an update, open pages ask for a reload.)
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason !== "install") return;
+  const pages = chrome.runtime.getManifest().content_scripts.find((c) => c.js.includes("bridge.js")).matches;
+  for (const tab of await chrome.tabs.query({ url: pages })) {
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["bridge.js"] }).catch(() => {});
+  }
+});

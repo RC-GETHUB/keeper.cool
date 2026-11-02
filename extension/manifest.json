@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Keeper \u2013 Saved Post Organizer",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Organize your Instagram saved posts in keeper.cool, and sync your new order back. Works with Instagram; not affiliated with it.",
   "permissions": [
     "storage",
@@ -11,7 +11,11 @@
   "host_permissions": [
     "https://www.instagram.com/*",
     "https://*.cdninstagram.com/*",
-    "https://*.fbcdn.net/*"
+    "https://*.fbcdn.net/*",
+    "https://keeper-cool.vercel.app/*",
+    "https://keeper.cool/*",
+    "https://www.keeper.cool/*",
+    "http://localhost:3000/*"
   ],
   "background": {
     "service_worker": "background.js"
