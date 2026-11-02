@@ -10,8 +10,26 @@
 
   const found = new Map(); // collection id -> name
   const paths = []; // Instagram addresses whose replies held collections, for the check report.
+  const requests = []; // How those requests were asked (which query, which settings), never any tokens.
   const post = (pairs) =>
-    window.postMessage({ __keeper: "collections", pairs, paths: paths.slice(-10) }, location.origin);
+    window.postMessage({ __keeper: "collections", pairs, paths: paths.slice(-10), requests: requests.slice(-5) }, location.origin);
+
+  /** What a request asked for, minus anything secret: the query's name and id, and its settings. */
+  function describe(method, url, body) {
+    const info = { method: String(method || "GET").toUpperCase(), path: pathOf(url) };
+    try {
+      const params = new URLSearchParams(typeof body === "string" ? body : body instanceof URLSearchParams ? body.toString() : "");
+      const query = new URL(url, location.href).searchParams;
+      const get = (k) => params.get(k) ?? query.get(k);
+      if (get("fb_api_req_friendly_name")) info.name = get("fb_api_req_friendly_name");
+      if (get("doc_id")) info.docId = get("doc_id");
+      if (get("variables")) info.variables = String(get("variables")).slice(0, 600);
+      if (!info.docId) info.query = [...query.keys()].filter((k) => !/token|dtsg|lsd|jazoest|^__/i.test(k)).slice(0, 12).map((k) => `${k}=${String(query.get(k)).slice(0, 80)}`).join("&");
+    } catch {
+      // Leave it at the path.
+    }
+    return info;
+  }
 
   function walk(node, out, depth = 0) {
     if (!node || typeof node !== "object" || depth > 40) return;
@@ -31,7 +49,7 @@
     }
   }
 
-  function scan(text, where) {
+  function scan(text, where, request) {
     if (typeof text !== "string" || text.indexOf("collection_name") < 0) return;
     const out = [];
     // Long ids would lose digits as JavaScript numbers: quote them first.
@@ -57,6 +75,7 @@
     const fresh = out.filter(([id, name]) => found.get(id) !== name);
     if (!out.length) return;
     if (where && !paths.includes(where)) paths.push(where);
+    if (request && !requests.some((r) => r.path === request.path && r.name === request.name && r.docId === request.docId)) requests.push(request);
     for (const [id, name] of fresh) found.set(id, name);
     if (fresh.length) post(fresh);
   }
@@ -76,7 +95,9 @@
     try {
       const url = typeof args[0] === "string" ? args[0] : args[0] && args[0].url;
       if (worthReading(url)) {
-        result.then((res) => res.clone().text().then((text) => scan(text, pathOf(url)))).catch(() => {});
+        const init = args[1] || {};
+        const request = describe(init.method || (args[0] && args[0].method), url, init.body);
+        result.then((res) => res.clone().text().then((text) => scan(text, pathOf(url), request))).catch(() => {});
       }
     } catch {
       // Never get in Instagram's way.
@@ -85,12 +106,23 @@
   };
 
   const open = XMLHttpRequest.prototype.open;
+  const send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (body) {
+    try {
+      if (this.__keeper) this.__keeper.body = body;
+    } catch {
+      // Ignore.
+    }
+    return send.call(this, body);
+  };
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     try {
       if (worthReading(url)) {
+        this.__keeper = { method, url };
         this.addEventListener("load", () => {
           try {
-            if (this.responseType === "" || this.responseType === "text") scan(this.responseText, pathOf(url));
+            const request = describe(method, url, this.__keeper && this.__keeper.body);
+            if (this.responseType === "" || this.responseType === "text") scan(this.responseText, pathOf(url), request);
           } catch {
             // Ignore.
           }

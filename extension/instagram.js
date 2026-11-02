@@ -234,6 +234,11 @@
       const mine = all[userId] || { names: {}, paths: [] };
       for (const [id, name] of pairs) if (/^\d{5,}$/.test(id) && typeof name === "string") mine.names[id] = name.slice(0, 200);
       mine.paths = [...new Set([...(mine.paths || []), ...(event.data.paths || [])])].slice(-10);
+      for (const r of Array.isArray(event.data.requests) ? event.data.requests : []) {
+        mine.requests = (mine.requests || []).filter((k) => !(k.path === r.path && k.name === r.name && k.docId === r.docId));
+        mine.requests.push(r);
+      }
+      mine.requests = (mine.requests || []).slice(-5);
       mine.at = Date.now();
       all[userId] = mine;
       await chrome.storage.local.set({ [NAMES_KEY]: all });

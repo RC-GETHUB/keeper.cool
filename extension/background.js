@@ -134,8 +134,19 @@ async function readSavedPage(username, userId) {
   const [open] = await chrome.tabs.query({ url: `${url}*` });
   let tabId = open && open.id;
   let windowId = null;
+  let previous = null;
+  let stoleFocus = false;
   if (!open) {
-    const win = await chrome.windows.create({ url, type: "popup", focused: true, width: 480, height: 820 });
+    // A small window in the corner, without taking focus. (Chrome doesn't load more of a page
+    // that can't be seen as it scrolls, so it can't be a hidden tab.)
+    previous = await chrome.windows.getLastFocused().catch(() => null);
+    const width = 420;
+    const height = 640;
+    const place =
+      previous && previous.width
+        ? { left: Math.max(0, previous.left + previous.width - width - 16), top: Math.max(0, previous.top + previous.height - height - 16) }
+        : {};
+    const win = await chrome.windows.create({ url, type: "popup", focused: false, width, height, ...place });
     windowId = win.id;
     tabId = win.tabs && win.tabs[0] && win.tabs[0].id;
   }
@@ -147,6 +158,15 @@ async function readSavedPage(username, userId) {
       details.url = (current.url || "").replace(/^https:\/\/www\.instagram\.com/, "");
       if (current.status === "complete" && (current.url || "").startsWith("https://www.instagram.com/")) break;
       await sleep(500);
+    }
+    if (windowId != null) {
+      // If Chrome put it behind another window, it isn't drawn: bring it forward after all.
+      const [seen] = await chrome.scripting.executeScript({ target: { tabId }, func: () => document.visibilityState });
+      if (seen && seen.result === "hidden") {
+        await chrome.windows.update(windowId, { focused: true });
+        details.focused = true;
+        stoleFocus = true;
+      }
     }
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -205,9 +225,19 @@ async function readSavedPage(username, userId) {
     }
     details.fromPageData = Object.keys(stored.names).length;
     details.pageDataFrom = stored.paths;
+    details.pageRequests = stored.requests || [];
+    // Remember the names drawn on the page too, so next time the window isn't needed.
+    if (userId && page.collections.length) {
+      const all = (await chrome.storage.local.get("collectionNames")).collectionNames || {};
+      const mine = all[String(userId)] || { names: {}, paths: [] };
+      for (const c of page.collections) if (!mine.names[c.id] || /^\d+$/.test(mine.names[c.id])) mine.names[c.id] = c.name;
+      all[String(userId)] = mine;
+      await chrome.storage.local.set({ collectionNames: all });
+    }
     return { collections: [...byId.values()], details };
   } finally {
     if (windowId != null) chrome.windows.remove(windowId).catch(() => {});
+    if (stoleFocus && previous && previous.id != null) chrome.windows.update(previous.id, { focused: true }).catch(() => {});
   }
 }
 
@@ -297,6 +327,7 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
   // in all, so progress can show how many are left.
   const collections = [];
   const warnings = [];
+  let listFailed = false;
   let total = null;
   let maxId = null;
   try {
@@ -313,15 +344,11 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
     // for the things that would stop those too.
     if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
     collections.length = 0;
-    // Some accounts don't get the list at all: read the collections off the Saved page instead.
-    try {
-      if (account.username) collections.push(...(await collectionsFromSavedPage(account.username, account.userId)));
-    } catch {
-      // Falls through to the note below.
-    }
-    if (!collections.length) {
-      warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
-    }
+    listFailed = true;
+    // Some accounts don't get the list at all. Start from the names Keeper already knows; the
+    // Saved page is only opened, after the posts, if a post is in a collection not named yet.
+    const stored = await storedNames(account.userId);
+    for (const [id, name] of Object.entries(stored.names)) collections.push({ id, name, from: "data" });
   }
 
   // Say how many collections there are straight away; they're matched up after the saved posts.
@@ -355,6 +382,25 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
   // When saved posts carry their collection ids, membership is already
   // known. Otherwise read each collection.
   const haveIds = saved.length > 0 && saved.every((m) => Array.isArray(m.collectionIds));
+  if (listFailed) {
+    const named = new Set(collections.map((c) => c.id));
+    const unnamed = haveIds ? new Set(saved.flatMap((m) => m.collectionIds).filter((id) => !named.has(id))) : null;
+    if ((!unnamed || unnamed.size) && account.username) {
+      try {
+        for (const c of await collectionsFromSavedPage(account.username, account.userId)) {
+          const known = collections.find((k) => k.id === c.id);
+          if (known) Object.assign(known, c);
+          else collections.push(c);
+        }
+      } catch {
+        // Falls through to the note below.
+      }
+    }
+    if (!collections.length || (unnamed && unnamed.size && !account.username)) {
+      warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
+    }
+    emit({ phase: "collections", done: 0, total: collections.length });
+  }
   if (haveIds) {
     const byId = new Map(collections.map((c) => [c.id, { ...c, items: [] }]));
     for (const m of saved) for (const id of m.collectionIds) byId.get(id) && byId.get(id).items.push(m.code);

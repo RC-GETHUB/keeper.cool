@@ -71,7 +71,8 @@ export function ImportProgress({ live }: { live: LiveRead }) {
   const eta = total && read >= 20 && elapsed > 0 ? ((total - live.count) * elapsed) / read : null;
 
   const collections = live.collections;
-  const readingCollections = collections && collections.total > 0 && live.count > 0 && (!total || live.count >= total);
+  // Matching starts once every saved post is in; the extension says so by counting collections done.
+  const readingCollections = collections && collections.total > 0 && live.count > 0 && (collections.done > 0 || (live.total !== null && live.count >= live.total));
 
   return (
     <div className="space-y-2 text-sm" role="status" aria-live="polite">
