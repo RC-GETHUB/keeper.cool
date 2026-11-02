@@ -146,6 +146,32 @@ describe("fromInstagramRead", () => {
   });
 });
 
+describe("collectionsFromLibrary: names from the Saved page", () => {
+  const saved: InstagramMedia[] = [
+    { pk: "1", code: "AAAAAAAAAAA", kind: "post", author: null, caption: null, image: null, collectionIds: ["c1"] },
+    { pk: "2", code: "BBBBBBBBBBB", kind: "post", author: null, caption: null, image: null, collectionIds: ["c2"] },
+  ];
+  const lib = mergeImport(emptyLibrary(), fromInstagramRead({ account: { userId: "1", username: "me" }, saved, collections: [] })).library;
+
+  it("keeps two collections that share a name apart", () => {
+    const { library, summary } = mergeImport(lib, collectionsFromLibrary(lib, [{ id: "c1", name: "Ideas" }, { id: "c2", name: "Ideas" }]));
+    expect(summary.collectionsAdded).toBe(2);
+    expect(library.collections.map((c) => [c.instagramId, c.items])).toEqual([
+      ["c1", ["AAAAAAAAAAA"]],
+      ["c2", ["BBBBBBBBBBB"]],
+    ]);
+  });
+
+  it("leaves out names no saved post belongs to, unless the Saved page showed them", () => {
+    const result = collectionsFromLibrary(lib, [
+      { id: "c1", name: "Ideas", from: "data" },
+      { id: "c9", name: "Someone else's list", from: "data" },
+      { id: "c8", name: "Empty but real", from: "link" },
+    ]);
+    expect(result.collections.map((c) => c.name)).toEqual(["Ideas", "Empty but real"]);
+  });
+});
+
 describe("collectionsFromLibrary", () => {
   it("builds collections from names that arrive after the posts", () => {
     const saved: InstagramMedia[] = [

@@ -71,10 +71,11 @@ export function mergeImport(lib: Library, result: ImportResult, options: MergeOp
   const collectionOrder: string[] = [];
   let collectionsAdded = 0;
   for (const incoming of result.collections) {
+    // Matched by Instagram's id when both sides have one: two collections can share a name.
+    const sameName = (c: Collection) =>
+      (!incoming.instagramId || !c.instagramId) && (c.instagramName === incoming.name || (c.instagramName === undefined && c.name === incoming.name));
     const existing =
-      (incoming.instagramId && collections.find((c) => c.instagramId === incoming.instagramId)) ||
-      collections.find((c) => c.instagramName === incoming.name) ||
-      collections.find((c) => c.instagramName === undefined && c.name === incoming.name);
+      (incoming.instagramId && collections.find((c) => c.instagramId === incoming.instagramId)) || collections.find(sameName);
     if (!existing) {
       const created: Collection = { id: newId(), name: incoming.name, instagramName: incoming.name, items: [...incoming.items] };
       if (incoming.instagramId) created.instagramId = incoming.instagramId;

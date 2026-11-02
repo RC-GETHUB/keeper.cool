@@ -195,12 +195,17 @@ async function readSavedPage(username, userId) {
     Object.assign(details, { title: page.title, savedLinks: page.savedLinks, sampleLinks: page.sampleLinks, fromLinks: page.collections.length });
     // Give the page's own data a moment to be stored, then add any names it received.
     await sleep(800);
-    const byId = new Map(page.collections.map((c) => [c.id, c.name]));
+    // "link": drawn on the Saved page. "data": only seen in what Instagram's pages received.
+    const byId = new Map(page.collections.map((c) => [c.id, { id: c.id, name: c.name, from: "link" }]));
     const stored = userId ? await storedNames(userId) : { names: {}, paths: [] };
-    for (const [id, name] of Object.entries(stored.names)) if (!byId.has(id) || /^\d+$/.test(byId.get(id))) byId.set(id, name);
+    for (const [id, name] of Object.entries(stored.names)) {
+      const seen = byId.get(id);
+      if (!seen) byId.set(id, { id, name, from: "data" });
+      else if (/^\d+$/.test(seen.name)) seen.name = name;
+    }
     details.fromPageData = Object.keys(stored.names).length;
     details.pageDataFrom = stored.paths;
-    return { collections: [...byId].map(([id, name]) => ({ id, name })), details };
+    return { collections: [...byId.values()], details };
   } finally {
     if (windowId != null) chrome.windows.remove(windowId).catch(() => {});
   }
@@ -355,7 +360,9 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
     for (const m of saved) for (const id of m.collectionIds) byId.get(id) && byId.get(id).items.push(m.code);
     emit({ phase: "collections", done: collections.length, total: collections.length });
     await chrome.storage.local.remove(READ_KEY);
-    return { account, saved, collections: [...byId.values()], warnings };
+    // A name only seen in Instagram's page data, with none of these posts in it, may not be this account's.
+    const kept = [...byId.values()].filter((c) => c.items.length || c.from !== "data").map(({ from, ...c }) => c);
+    return { account, saved, collections: kept, warnings };
   }
 
   const inSaved = new Map(saved.map((m) => [m.code, m]));
@@ -393,7 +400,7 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
         `Instagram wouldn't open ${unreadable.length === 1 ? "the collection" : `${unreadable.length} collections`} ${unreadable.map((n) => `“${n}”`).join(", ")}, so ${unreadable.length === 1 ? "it's" : "they're"} empty in Keeper for now. The posts themselves were imported.`,
     );
   }
-  return { account, saved, collections: filled, warnings };
+  return { account, saved, collections: filled.filter((c) => c.items.length || c.from !== "data").map(({ from, ...c }) => c), warnings };
 }
 
 // ---------------------------------------------------------------- Cover images

@@ -499,9 +499,9 @@ export function App() {
     const named: Library = current.instagram
       ? { ...current, instagram: { ...current.instagram, username: current.instagram.username ?? username } }
       : { ...current, exportUsername: current.exportUsername ?? username };
-    const { library } = mergeImport(named, collectionsFromLibrary(named, collections), { flagNew: false });
-    commit(library, `Added ${plural(collections.length, "collection")}`);
-    return collections.length;
+    const { library, summary } = mergeImport(named, collectionsFromLibrary(named, collections), { flagNew: false });
+    commit(library, `Added ${plural(summary.collectionsAdded, "collection")}`);
+    return summary.collectionsAdded;
   };
 
   /** Copies bookmarks into another account's library, to be saved there by its next Sync. */
