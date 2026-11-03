@@ -266,7 +266,7 @@ export function switchInstagramAccount(current: InstagramAccount): Promise<Insta
 }
 
 /** The account's collection names and ids (from the list, or the Saved page of `username`). */
-export function readCollections(username: string | null): Promise<{ collections: { id: string; name: string; from?: "link" | "data" }[] }> {
+export function readCollections(username: string | null): Promise<{ collections: { id: string; name: string; from?: "link" | "data" | "graph" }[] }> {
   return request("collections", { username });
 }
 

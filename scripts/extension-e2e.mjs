@@ -119,12 +119,33 @@ async function mockInstagram(context) {
     if (path === "/graphql/query") {
       return json('{"data":{"xdt_api__v1__collections__list":{"items":[{"collection_id":17900000000000017,"collection_name":"Weekend \\u2600","collection_type":"MEDIA"},{"collection_id":17900000000000099,"collection_name":"All posts","collection_type":"ALL_MEDIA_AUTO_COLLECTION"}]}}}');
     }
-    if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Fake Instagram</body></html>" });
+    // Instagram's pages carry the tokens its own GraphQL requests send back.
+    const TOKENS = `<script type="application/json">{"r":[["LSD",[],{"token":"lsd-test"}],["DTSGInitialData",[],{"token":"dtsg-test"}]]}</script>`;
+    if (!path.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: `<html><body>Fake Instagram${TOKENS}</body></html>` });
     if (request.method() === "POST" && request.headers()["x-csrftoken"] !== "csrf-test") return route.fulfill({ status: 403, body: "CSRF" });
     ig.calls.push(`${request.method()} ${path}${url.search}`);
     // Whoever is logged in (by cookie) gets their own saves.
     const uid = /ds_user_id=(\d+)/.exec((await request.allHeaders()).cookie ?? "")?.[1];
     const acct = uid === OTHER_ID ? second : ig;
+
+    // The Saved page's own GraphQL query for collections, 12 at a time, as Instagram answers it.
+    if (path === "/api/graphql") {
+      const form = new URLSearchParams(request.postData() ?? "");
+      ig.calls.push(`graphql ${form.get("fb_api_req_friendly_name")}`);
+      const known = ["27584326974521636", "27959320833754327"];
+      // The page's tokens must come along (the tab may hold a real instagram.com page, so any token goes).
+      if (!form.get("lsd") || request.headers()["x-fb-lsd"] !== form.get("lsd") || !form.get("fb_dtsg")) {
+        return route.fulfill({ status: 400, contentType: "text/html", body: "<!DOCTYPE html><html>Bad request</html>" });
+      }
+      if (!known.includes(form.get("doc_id"))) return json('{"errors":[{"message":"PersistedQueryNotFound"}]}');
+      const after = JSON.parse(form.get("variables") ?? "{}").after;
+      const node = (id, name, type = "MEDIA") => `{"node":{"collection_id":${id},"collection_name":${JSON.stringify(name)},"collection_type":"${type}"}}`;
+      if (acct !== second) return json('{"data":{"xdt_api__v1__collections__connection":{"edges":[],"page_info":{"has_next_page":false,"end_cursor":null}}}}');
+      if (after == null) {
+        return json(`{"data":{"xdt_api__v1__collections__connection":{"edges":[${node("17900000000000099", "All posts", "ALL_MEDIA_AUTO_COLLECTION")},${node("17900000000000009", "Road Trips")}],"page_info":{"has_next_page":true,"end_cursor":"11"}}}}`);
+      }
+      return json(`for (;;);{"data":{"xdt_api__v1__collections__connection":{"edges":[${node("17900000000000017", "Weekend ☀")}],"page_info":{"has_next_page":false,"end_cursor":"12"}}}}`);
+    }
 
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
     // Like Ryan's account, the second one gets no username from Instagram at all.
@@ -375,10 +396,7 @@ async function run() {
     // Instagram never says this account's username, so Keeper asks for it before reading.
     await page.getByLabel("Which account is this?").waitFor({ timeout: 30_000 });
     check(switchWindow.isClosed(), "notices the switch and closes the pop-up");
-    // Its Saved page is open in a tab (a tab the extension opened itself would load the real Instagram).
-    const savedTab = await context.newPage();
-    await savedTab.goto(`https://www.instagram.com/${second.username}/saved/`);
-    await page.bringToFront();
+    const graphBefore = ig.calls.filter((c) => c.startsWith("graphql")).length;
     await page.getByLabel("Which account is this?").fill("@second.account");
     await page.getByRole("button", { name: "Start import" }).click();
     await page.getByRole("button", { name: /New library for/ }).click({ timeout: 30_000 });
@@ -392,10 +410,14 @@ async function run() {
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("account-menu").textContent()).includes("@second.account"), "the header shows which account is open");
     check((await page.locator("[role=listitem]").count()) === 5, "the new library has only that account's 5 saves");
-    check((await page.getByTestId("count-Road Trips").textContent()) === "2", "collections read off the Saved page when Instagram won't list them");
+    check((await page.getByTestId("count-Road Trips").textContent()) === "2", "collections come in even when Instagram won't list them the plain way");
     check(
       (await page.getByTestId("count-Weekend ☀").textContent()) === "1" && (await page.getByTestId("count-All posts").count()) === 0,
-      "collections the Saved page only received as data are found too, with their exact ids",
+      "every page of collections is read, with their exact ids, and Instagram's own 'All posts' left out",
+    );
+    check(
+      ig.calls.filter((c) => c.startsWith("graphql")).length - graphBefore === 2 && context.pages().every((p) => !p.url().includes("/saved/")),
+      "collections were read in the background, without opening Instagram's Saved page",
     );
     if (process.env.SHOT2) {
       // Import this account again, slowly, to see "of about N" and the collection count.

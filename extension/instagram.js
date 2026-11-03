@@ -148,6 +148,97 @@
     return { username: null, via: null };
   }
 
+  // ---- Instagram's own GraphQL, as its Saved page uses it (for accounts that can't list collections the plain way).
+
+  /** The page tokens Instagram's web app sends with GraphQL requests (from this page, or a fresh copy of it). */
+  let graphTokens = null;
+  async function tokens() {
+    if (graphTokens) return graphTokens;
+    const find = (html) => {
+      const lsd = html.match(/"LSD",\[\],\{"token":"([^"]+)"/) || html.match(/"lsd":"([^"]+)"/);
+      const dtsg = html.match(/"DTSGInitialData",\[\],\{"token":"([^"]+)"/) || html.match(/"dtsg":\{"token":"([^"]+)"/);
+      return { lsd: lsd ? lsd[1] : null, dtsg: dtsg ? dtsg[1] : null };
+    };
+    let found = find(document.documentElement.innerHTML);
+    if (!found.lsd || !found.dtsg) {
+      const fresh = find(await (await fetch("/", { credentials: "include" })).text());
+      found = { lsd: found.lsd || fresh.lsd, dtsg: found.dtsg || fresh.dtsg };
+    }
+    graphTokens = found;
+    return found;
+  }
+
+  async function graphql(docId, name, variables) {
+    const { lsd, dtsg } = await tokens();
+    const form = {
+      __a: "1",
+      __comet_req: "7",
+      fb_api_caller_class: "RelayModern",
+      fb_api_req_friendly_name: name,
+      variables: JSON.stringify(variables),
+      server_timestamps: "true",
+      doc_id: docId,
+    };
+    if (lsd) form.lsd = lsd;
+    if (dtsg) {
+      form.fb_dtsg = dtsg;
+      form.jazoest = `2${[...dtsg].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)}`;
+    }
+    const headers = {
+      "X-IG-App-ID": APP_ID,
+      "X-ASBD-ID": "129477",
+      "X-FB-Friendly-Name": name,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "*/*",
+    };
+    if (lsd) headers["X-FB-LSD"] = lsd;
+    const csrf = cookie("csrftoken");
+    if (csrf) headers["X-CSRFToken"] = csrf;
+    const res = await fetch("https://www.instagram.com/api/graphql", {
+      method: "POST",
+      headers,
+      body: new URLSearchParams(form).toString(),
+      credentials: "include",
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text.replace(/^for \(;;\);/, "").replace(/([:[,]\s*)(\d{16,})(?=\s*[,\]}])/g, '$1"$2"'));
+    } catch {
+      json = null;
+    }
+    if (!res.ok || !json) throw classify(res.status, json, text);
+    if (!json.data && json.errors && json.errors.length) {
+      // A stale query id or missing token: say so, so Keeper can fall back to the Saved page.
+      graphTokens = null;
+      throw problem("unknown", String(json.errors[0].message || "Instagram didn't accept the request."), { status: res.status, detail: `graphql ${String(json.errors[0].message || "").slice(0, 120)}` });
+    }
+    return json;
+  }
+
+  /** Collections (id and name) and where the next page starts, from a GraphQL answer. */
+  function collectionsIn(json) {
+    const items = [];
+    let pageInfo = null;
+    const walk = (node, depth = 0) => {
+      if (!node || typeof node !== "object" || depth > 40) return;
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item, depth + 1);
+        return;
+      }
+      if (!pageInfo && typeof node.has_next_page === "boolean") pageInfo = node;
+      const name = node.collection_name;
+      const id = node.collection_id ?? (name !== undefined ? (node.id ?? node.pk) : undefined);
+      const type = node.collection_type;
+      if (typeof name === "string" && id != null && /^\d{5,}$/.test(String(id)) && (!type || type === "MEDIA")) {
+        items.push({ id: String(id), name });
+      }
+      for (const key in node) if (node[key] && typeof node[key] === "object") walk(node[key], depth + 1);
+    };
+    walk(json.data);
+    return { items, more: Boolean(pageInfo && pageInfo.has_next_page && pageInfo.end_cursor), next: pageInfo ? pageInfo.end_cursor || null : null };
+  }
+
   function mediaPage(json) {
     const items = (json.items || []).map((item) => liteMedia(item.media || item)).filter(Boolean);
     return { items, more: Boolean(json.more_available && json.next_max_id), next: json.next_max_id || null };
@@ -163,6 +254,12 @@
       const hint = hintUserId && String(hintUserId) === String(userId) ? usernameHint : null;
       const { username, via } = await findUsername(String(userId), hint);
       return { userId: String(userId), username, via };
+    },
+
+    collectionsGraph: async ({ docId, name, after, first = 24, types }) => {
+      const variables = { collection_types: types, first };
+      if (after != null) variables.after = after;
+      return collectionsIn(await graphql(docId, name, variables));
     },
 
     savedPage: async ({ maxId }) => mediaPage(await api(`/api/v1/feed/saved/posts/${query({ max_id: maxId })}`)),

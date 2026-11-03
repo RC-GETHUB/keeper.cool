@@ -241,6 +241,71 @@ async function readSavedPage(username, userId) {
   }
 }
 
+// Instagram's Saved page asks for its collections with these GraphQL queries. Their ids
+// change when Instagram updates its site, so the ones the page itself last used (seen by
+// sniff.js) come first.
+const SAVED_QUERIES = {
+  first: { name: "PolarisProfileSavedTabContentQuery", docId: "27584326974521636" },
+  next: { name: "PolarisProfileSavedTabContentQuery_connection", docId: "27959320833754327" },
+};
+const SAVED_TYPES = ["ALL_MEDIA_AUTO_COLLECTION", "PLAYLIST_AUTO_COLLECTION", "MEDIA", "AUDIO_AUTO_COLLECTION"];
+
+/**
+ * Reads every collection's name and id in the background, the way Instagram's own Saved
+ * page does, without opening anything. `onPage` hears how many so far. Throws if
+ * Instagram won't answer this way, so the Saved page can be used instead.
+ */
+async function collectionsFromGraph(userId, onPage) {
+  const stored = userId ? await storedNames(userId) : { requests: [] };
+  const seen = (name) => (stored.requests || []).filter((r) => r.name === name && r.docId).map((r) => r.docId).reverse();
+  const ids = (key) => [...new Set([...seen(SAVED_QUERIES[key].name), SAVED_QUERIES[key].docId])];
+  const ask = async (key, after) => {
+    let lastError = null;
+    for (const docId of ids(key)) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await ig("collectionsGraph", { docId, name: SAVED_QUERIES[key].name, after, first: 24, types: SAVED_TYPES });
+        } catch (error) {
+          lastError = error;
+          if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
+          if (!error || error.code !== "busy") break; // Try the next query id.
+          await sleep([3000, 10000][attempt] || 10000);
+        }
+      }
+    }
+    throw lastError || { code: "unknown", message: "Instagram didn't answer." };
+  };
+  const found = new Map();
+  let page = await ask("first", null);
+  for (let i = 0; i < 200; i++) {
+    for (const c of page.items) if (!found.has(c.id)) found.set(c.id, c.name);
+    if (onPage) onPage(found.size);
+    if (!page.more) break;
+    await sleep(between(500, 1100));
+    page = await ask("next", page.next);
+  }
+  if (!found.size) throw { code: "not_found", message: "Instagram's Saved page query returned no collections." };
+  // Remember them, so the next import needn't ask again unless something's new.
+  if (userId) {
+    const all = (await chrome.storage.local.get("collectionNames")).collectionNames || {};
+    const mine = all[String(userId)] || { names: {}, paths: [] };
+    for (const [id, name] of found) mine.names[id] = name;
+    all[String(userId)] = mine;
+    await chrome.storage.local.set({ collectionNames: all });
+  }
+  return [...found].map(([id, name]) => ({ id, name, from: "graph" }));
+}
+
+/** Collection names: quietly in the background first, the Saved page (a small window) only if that fails. */
+async function collectionsInBackground(username, userId, onPage) {
+  try {
+    return await collectionsFromGraph(userId, onPage);
+  } catch (error) {
+    if (error && (error.code === "login" || error.code === "blocked" || error.code === "challenge")) throw error;
+    return username ? collectionsFromSavedPage(username, userId) : [];
+  }
+}
+
 async function collectionsFromSavedPage(username, userId) {
   return (await readSavedPage(username, userId)).collections;
 }
@@ -273,7 +338,17 @@ async function diagnose(hint = {}) {
     const page = await ig("collectionsPage", { maxId: null });
     return { collections: page.items.length, total: page.total, first: page.items.slice(0, 3).map((c) => c.name) };
   });
+  let fromGraph = [];
+  await step("collectionQuery", async () => {
+    fromGraph = await collectionsFromGraph(account && account.userId);
+    return { collections: fromGraph.length, first: fromGraph.slice(0, 3).map((c) => c.name) };
+  });
   await step("savedPage", async () => {
+    // Only opens Instagram's Saved page (a small window) when the quiet way didn't work.
+    if (fromGraph.length) {
+      fromPage = fromGraph;
+      return { skipped: "not needed" };
+    }
     if (!account || !account.username) return { skipped: "no username" };
     const { collections, details } = await readSavedPage(account.username, account.userId);
     fromPage = collections;
@@ -385,9 +460,10 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
   if (listFailed) {
     const named = new Set(collections.map((c) => c.id));
     const unnamed = haveIds ? new Set(saved.flatMap((m) => m.collectionIds).filter((id) => !named.has(id))) : null;
-    if ((!unnamed || unnamed.size) && account.username) {
+    if (!unnamed || unnamed.size) {
       try {
-        for (const c of await collectionsFromSavedPage(account.username, account.userId)) {
+        const onPage = (n) => emit({ phase: "collections", done: 0, total: n, reading: true });
+        for (const c of await collectionsInBackground(account.username, account.userId, onPage)) {
           const known = collections.find((k) => k.id === c.id);
           if (known) Object.assign(known, c);
           else collections.push(c);
@@ -396,7 +472,9 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
         // Falls through to the note below.
       }
     }
-    if (!collections.length || (unnamed && unnamed.size && !account.username)) {
+    const nowNamed = new Set(collections.map((c) => c.id));
+    const stillUnnamed = haveIds && saved.some((m) => m.collectionIds.some((id) => !nowNamed.has(id)));
+    if (!collections.length && (!haveIds || stillUnnamed)) {
       warnings.push("Instagram wouldn't list your collections this time, so they aren't in Keeper yet. Import again later to bring them in.");
     }
     emit({ phase: "collections", done: 0, total: collections.length });
@@ -407,7 +485,7 @@ async function readInstagram(pace, emit, thumbs, hint = {}) {
     emit({ phase: "collections", done: collections.length, total: collections.length });
     await chrome.storage.local.remove(READ_KEY);
     // A name only seen in Instagram's page data, with none of these posts in it, may not be this account's.
-    const kept = [...byId.values()].filter((c) => c.items.length || c.from !== "data").map(({ from, ...c }) => c);
+    const kept = [...byId.values()].filter((c) => c.items.length || c.from !== "data").map(({ from, ...c }) => c); // eslint-disable-line no-unused-vars
     return { account, saved, collections: kept, warnings };
   }
 
@@ -832,7 +910,7 @@ async function handle(port, message) {
           list = page.items;
         } catch {
           const me = await ig("whoami");
-          list = username ? await collectionsFromSavedPage(username, me.userId) : [];
+          list = await collectionsInBackground(username || me.username, me.userId);
         }
         result = { collections: list };
         break;

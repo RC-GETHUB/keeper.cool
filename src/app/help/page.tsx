@@ -40,8 +40,8 @@ const QUESTIONS: { q: string; a: React.ReactNode }[] = [
     q: "My collections are missing",
     a: (
       <>
-        If a bar at the top says your collections aren&apos;t in Keeper yet, click <b>Get collections</b>. A small Instagram window opens
-        for a moment and closes by itself. If it still doesn&apos;t work, click <b>Run a check</b> in that window and email us the report.
+        If a bar at the top says your collections aren&apos;t in Keeper yet, click <b>Get collections</b>. It takes a few seconds. If it
+        still doesn&apos;t work, click <b>Run a check</b> in that window and email us the report.
       </>
     ),
   },

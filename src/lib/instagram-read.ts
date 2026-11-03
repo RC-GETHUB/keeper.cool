@@ -103,13 +103,13 @@ export function mergeNewSaves(lib: Library, read: InstagramRead): { library: Lib
  * Collections from their names and ids alone, filled from the collection ids
  * each bookmark carries (for when the names arrive after the posts).
  */
-export function collectionsFromLibrary(lib: Library, named: { id: string; name: string; from?: "link" | "data" }[]): ImportResult {
+export function collectionsFromLibrary(lib: Library, named: { id: string; name: string; from?: "link" | "data" | "graph" }[]): ImportResult {
   const byId = new Map(named.map((c) => [c.id, { name: c.name, instagramId: c.id, items: [] as string[], from: c.from }]));
   for (const id of lib.order) for (const cid of lib.bookmarks[id]?.igCollections ?? []) byId.get(cid)?.items.push(id);
   // A name with none of the saved posts in it may not be one of this account's collections at all
-  // (Instagram's pages carry other lists too): leave it out, unless it was drawn on the Saved page.
+  // (Instagram's pages carry other lists too): leave it out, unless the Saved page itself listed it.
   const collections = [...byId.values()]
-    .filter((c) => c.items.length > 0 || c.from === "link")
+    .filter((c) => c.items.length > 0 || c.from === "link" || c.from === "graph")
     .map(({ from: _from, ...c }) => c); // eslint-disable-line @typescript-eslint/no-unused-vars
   return { bookmarks: [], collections, mergedDuplicates: 0, skipped: 0, warnings: [], partial: true };
 }

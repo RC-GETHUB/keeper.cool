@@ -36,8 +36,7 @@ export function DiagnosePanel({ hint, label = "Run a check, to help fix this" }:
   if (state === "running") {
     return (
       <p className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400" role="status">
-        <Loader2 className="size-4 animate-spin text-accent" /> Checking how Instagram answers (about 30 seconds; a small Instagram window
-        may open briefly)…
+        <Loader2 className="size-4 animate-spin text-accent" /> Checking how Instagram answers (about 30 seconds)…
       </p>
     );
   }

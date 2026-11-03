@@ -64,7 +64,7 @@ export function CollectionsFix({
           {state.busy ? <Loader2 className="size-4 animate-spin" /> : <FolderSearch className="size-4" />} Get collections
         </button>
       </div>
-      {state.busy && <p className="text-xs text-neutral-500">Reading your Saved page (a small Instagram window opens for a moment)…</p>}
+      {state.busy && <p className="text-xs text-neutral-500">Reading your collections from Instagram…</p>}
       {state.error && <p className="text-xs text-red-600 dark:text-red-400">{state.error}</p>}
     </form>
   );

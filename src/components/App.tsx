@@ -692,8 +692,8 @@ export function App() {
           >
             <h2 className="text-lg font-semibold">Get your Instagram collections</h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              Your posts already know which collections they&apos;re in. Keeper only needs the collections&apos; names, from your
-              Saved page: a small Instagram window opens for a moment and closes by itself.
+              Your posts already know which collections they&apos;re in. Keeper only needs the collections&apos; names, which it
+              reads from Instagram in the background. It takes a few seconds.
             </p>
             <CollectionsFix initial={identityOf(lib).username} onGetCollections={getCollections} />
             <DiagnosePanel
