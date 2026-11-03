@@ -170,7 +170,7 @@ export function Sidebar({
         onPointerMove={(e) => {
           if (!drag) return;
           // Scroll the sidebar when dragging near its edges.
-          const nav = listRef.current?.closest("nav");
+          const nav = listRef.current?.closest("[data-sidebar-scroll]");
           if (nav) {
             const r = nav.getBoundingClientRect();
             if (e.clientY < r.top + 40) nav.scrollTop -= 12;
@@ -199,7 +199,9 @@ export function Sidebar({
     ) : null;
 
   return (
-    <nav className="flex h-full flex-col gap-4 overflow-y-auto p-3" aria-label="Collections">
+    <nav className="flex h-full flex-col" aria-label="Collections">
+      {/* Only this part scrolls; the footer below stays in view however many collections there are. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3" data-sidebar-scroll>
       <div className="space-y-0.5">
         <Item
           active={scope.type === "all"}
@@ -342,7 +344,9 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="mt-auto space-y-0.5 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+      </div>
+
+      <div className="shrink-0 space-y-0.5 border-t border-neutral-200 p-3 dark:border-neutral-800">
         <button type="button" onClick={onBackup} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900">
           <Download className="size-3.5" /> Download a backup
         </button>
