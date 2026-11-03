@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HelpCheck } from "@/components/HelpCheck";
 import { SUPPORT_EMAIL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -110,6 +111,14 @@ export default function HelpPage() {
           </section>
         ))}
       </div>
+      <section className="mt-10 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+        <h2 className="mb-1 text-base font-semibold">Something not working with Instagram?</h2>
+        <p className="mb-3 text-neutral-700 dark:text-neutral-300">
+          Run a check: it tries each way Keeper reads Instagram (reading only, nothing changes) and makes a short report to send us. It
+          holds no passwords or posts.
+        </p>
+        <HelpCheck />
+      </section>
       <p className="mt-10 text-xs text-neutral-500">Keeper is not affiliated with, endorsed by or sponsored by Instagram or Meta.</p>
     </main>
   );

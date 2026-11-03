@@ -1,15 +1,16 @@
 "use client";
 
-import { Copy, Loader2, Stethoscope } from "lucide-react";
+import { Copy, Loader2, Mail, Stethoscope } from "lucide-react";
 import { useState } from "react";
 import { request, type UsernameHint } from "@/lib/extension";
+import { SUPPORT_EMAIL } from "@/lib/site";
 import { ghostButton } from "./ui";
 
 /**
  * Runs the extension's read-only check of which ways of reading Instagram
  * work for this account, and shows the report to screenshot or copy.
  */
-export function DiagnosePanel({ hint }: { hint?: UsernameHint | null }) {
+export function DiagnosePanel({ hint, label = "Run a check, to help fix this" }: { hint?: UsernameHint | null; label?: string }) {
   const [state, setState] = useState<"idle" | "running" | "done">("idle");
   const [report, setReport] = useState("");
   const [copied, setCopied] = useState(false);
@@ -28,15 +29,15 @@ export function DiagnosePanel({ hint }: { hint?: UsernameHint | null }) {
   if (state === "idle") {
     return (
       <button type="button" onClick={run} className={`${ghostButton} -ml-3`}>
-        <Stethoscope className="size-4" /> Run a check, to help fix this
+        <Stethoscope className="size-4" /> {label}
       </button>
     );
   }
   if (state === "running") {
     return (
       <p className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400" role="status">
-        <Loader2 className="size-4 animate-spin text-accent" /> Checking how Instagram answers (about 30 seconds; a background tab may open
-        briefly)…
+        <Loader2 className="size-4 animate-spin text-accent" /> Checking how Instagram answers (about 30 seconds; a small Instagram window
+        may open briefly)…
       </p>
     );
   }
@@ -58,6 +59,12 @@ export function DiagnosePanel({ hint }: { hint?: UsernameHint | null }) {
       >
         <Copy className="size-4" /> {copied ? "Copied" : "Copy report"}
       </button>
+      <a
+        href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Keeper check report")}&body=${encodeURIComponent(report.slice(0, 1800))}`}
+        className={`${ghostButton} -ml-3`}
+      >
+        <Mail className="size-4" /> Email it to us
+      </a>
     </div>
   );
 }
