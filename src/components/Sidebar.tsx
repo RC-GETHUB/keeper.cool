@@ -1,7 +1,7 @@
 "use client";
 
-import { Bookmark as BookmarkIcon, Copy, Sparkles, Download, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Bookmark as BookmarkIcon, Copy, Sparkles, Download, Eye, EyeOff, Folder, FolderPlus, GripVertical, Inbox, Pencil, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sortCollections, type CollectionSort, type Counts, type Scope } from "@/lib/library/query";
 import type { Collection, Library } from "@/lib/types";
 import { InlineEdit, fmtCount } from "./ui";
@@ -125,7 +125,38 @@ export function Sidebar({
   // Choosing a sort reorders the collections for good (it can be undone);
   // the menu remembers which one was applied until the user drags.
   const [sort, setSort] = useState<CollectionSort | "instagram">("custom");
-  const shown = useMemo(() => sortCollections(lib.collections, "custom", filter), [lib.collections, filter]);
+  // Collections from Instagram whose posts are all gone (deleted, private) show 0: hidden unless asked for.
+  // Ones made in Keeper stay, even empty, and so does the one that's open.
+  const [hideEmpty, setHideEmpty] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("keeper:show-empty-collections") === "1") setHideEmpty(false);
+    } catch {
+      // Storage blocked: keep the default.
+    }
+  }, []);
+  const toggleEmpty = () => {
+    setHideEmpty((v) => {
+      try {
+        localStorage.setItem("keeper:show-empty-collections", v ? "1" : "0");
+      } catch {
+        // Fine: it just won't be remembered.
+      }
+      return !v;
+    });
+  };
+  const openId = scope.type === "collection" ? scope.id : null;
+  const isHideable = (c: Collection) => Boolean(c.instagramId) && c.items.length === 0 && c.id !== openId;
+  const emptyCount = useMemo(() => lib.collections.filter(isHideable).length, [lib.collections, openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = useMemo(
+    () => sortCollections(lib.collections, "custom", filter).filter((c) => !hideEmpty || !isHideable(c)),
+    [lib.collections, filter, hideEmpty, openId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  /** Where a row's place in the list on screen falls in the whole list (some may be hidden). */
+  const fullIndex = (shownIndex: number) =>
+    shownIndex < shown.length
+      ? lib.collections.findIndex((c) => c.id === shown[shownIndex].id)
+      : lib.collections.findIndex((c) => c.id === shown[shown.length - 1]?.id) + 1;
   const many = lib.collections.length > 8;
   const canDrag = !filter;
   const applySort = (next: CollectionSort | "instagram") => {
@@ -145,8 +176,9 @@ export function Sidebar({
     });
     return i < 0 ? rows.length : i;
   };
-  const dropAt = (id: string, target: number) => {
+  const dropAt = (id: string, shownTarget: number) => {
     const from = lib.collections.findIndex((c) => c.id === id);
+    const target = fullIndex(shownTarget);
     const to = target > from ? target - 1 : target;
     if (to !== from) {
       onMoveCollection(id, to);
@@ -184,8 +216,9 @@ export function Sidebar({
         }}
         onPointerCancel={() => setDrag(null)}
         onKeyDown={(e) => {
-          const to = e.key === "ArrowUp" ? index - 1 : e.key === "ArrowDown" ? index + 1 : -1;
-          if (to < 0 || to >= lib.collections.length) return;
+          const next = e.key === "ArrowUp" ? index - 1 : e.key === "ArrowDown" ? index + 1 : -1;
+          if (next < 0 || next >= shown.length) return;
+          const to = fullIndex(next);
           e.preventDefault();
           onMoveCollection(id, to);
           setSort("custom");
@@ -288,6 +321,18 @@ export function Sidebar({
               {onRestoreCollectionOrder && <option value="instagram">Instagram&apos;s order</option>}
             </select>
           </div>
+        )}
+        {emptyCount > 0 && (
+          <button
+            type="button"
+            onClick={toggleEmpty}
+            className="flex items-center gap-1.5 px-2.5 pb-1 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+            data-testid="toggle-empty"
+            title="Collections from Instagram with none of your saved posts left in them (their posts were deleted or made private)"
+          >
+            {hideEmpty ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {hideEmpty ? `Show ${fmtCount.format(emptyCount)} empty` : `Hide ${fmtCount.format(emptyCount)} empty`}
+          </button>
         )}
         {filter && shown.length === 0 && <p className="px-2.5 py-1 text-xs text-neutral-500">No collection matches “{filter}”.</p>}
         <div ref={listRef} className="relative space-y-0.5">

@@ -144,7 +144,7 @@ async function mockInstagram(context) {
       if (after == null) {
         return json(`{"data":{"xdt_api__v1__collections__connection":{"edges":[${node("17900000000000099", "All posts", "ALL_MEDIA_AUTO_COLLECTION")},${node("17900000000000009", "Road Trips")}],"page_info":{"has_next_page":true,"end_cursor":"11"}}}}`);
       }
-      return json(`for (;;);{"data":{"xdt_api__v1__collections__connection":{"edges":[${node("17900000000000017", "Weekend ☀")}],"page_info":{"has_next_page":false,"end_cursor":"12"}}}}`);
+      return json(`for (;;);{"data":{"xdt_api__v1__collections__connection":{"edges":[${node("17900000000000017", "Weekend ☀")},${node("17900000000000018", "Old trip")}],"page_info":{"has_next_page":false,"end_cursor":"12"}}}}`);
     }
 
     const info = path.match(/^\/api\/v1\/users\/(\d+)\/info\/$/);
@@ -415,6 +415,10 @@ async function run() {
       (await page.getByTestId("count-Weekend ☀").textContent()) === "1" && (await page.getByTestId("count-All posts").count()) === 0,
       "every page of collections is read, with their exact ids, and Instagram's own 'All posts' left out",
     );
+    check((await page.getByTestId("count-Old trip").count()) === 0, "a collection whose posts are all gone is hidden at first");
+    await page.getByTestId("toggle-empty").click();
+    check((await page.getByTestId("count-Old trip").textContent()) === "0", "“Show 1 empty” brings it back");
+    await page.getByTestId("toggle-empty").click();
     check(
       ig.calls.filter((c) => c.startsWith("graphql")).length - graphBefore === 2 && context.pages().every((p) => !p.url().includes("/saved/")),
       "collections were read in the background, without opening Instagram's Saved page",
