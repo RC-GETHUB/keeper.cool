@@ -45,7 +45,9 @@ function waitForLoad(tabId) {
 
 /** An instagram.com tab with instagram.js ready in it. Opens one in the background if needed. */
 async function instagramTab() {
-  let [tab] = await chrome.tabs.query({ url: "https://www.instagram.com/*" });
+  // A tab in an ordinary window: Keeper's small Instagram window (for logging in or switching
+  // accounts) closes as soon as it's done, so work never runs in it.
+  let [tab] = await chrome.tabs.query({ url: "https://www.instagram.com/*", windowType: "normal" });
   if (!tab) {
     tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: false });
     await waitForLoad(tab.id);

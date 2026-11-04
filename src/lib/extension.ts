@@ -199,70 +199,109 @@ export function instagramAccount(): Promise<InstagramAccount> {
   return request<InstagramAccount>("account");
 }
 
-/**
- * Opens Instagram's own login page in a small window and resolves once the
- * extension sees a logged-in account (or rejects if the window is closed
- * first). Keeper never sees the password: it's typed into instagram.com.
- */
-export function logInToInstagram(): Promise<InstagramAccount> {
+// ---- The one Instagram window Keeper opens (to log in, or switch accounts).
+// Instagram can't be shown inside Keeper (it refuses to be embedded), so it gets a
+// small window of its own: only ever one, brought to the front, and closed by Keeper
+// as soon as it's done or the user closes Keeper's dialog.
+
+let igWindow: { popup: Window | null; stop: () => void } | null = null;
+
+function openInstagramWindow(url: string): Window | null {
+  closeInstagramWindow();
   const width = 460;
   const height = 720;
   const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
   const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-  const popup = window.open(
-    "https://www.instagram.com/accounts/login/",
-    "keeper-instagram-login",
-    `popup,width=${width},height=${height},left=${left},top=${top}`,
-  );
+  const popup = window.open(url, "keeper-instagram", `popup,width=${width},height=${height},left=${left},top=${top}`);
+  popup?.focus();
+  return popup;
+}
+
+/** Brings Keeper's Instagram window back to the front, if it's open. */
+export function showInstagramWindow() {
+  if (igWindow?.popup && !igWindow.popup.closed) igWindow.popup.focus();
+}
+
+/** Closes Keeper's Instagram window and stops waiting on it. */
+export function closeInstagramWindow() {
+  const current = igWindow;
+  igWindow = null;
+  if (!current) return;
+  current.stop();
+  try {
+    current.popup?.close();
+  } catch {
+    // Already gone.
+  }
+}
+
+/** Polls the extension until `done` says so (or the window closes / 10 minutes pass). */
+function watchWindow<T>(
+  popup: Window | null,
+  every: number,
+  poll: (closed: boolean) => Promise<T | undefined>,
+  onClosed: (lastError: unknown) => Error | unknown,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const started = Date.now();
-    const timer = setInterval(async () => {
+    let finished = false;
+    const finish = (fn: () => void) => {
+      if (finished) return;
+      finished = true;
+      clearInterval(timer);
+      if (igWindow?.popup === popup) igWindow = null;
       try {
-        const account = await instagramAccount();
-        clearInterval(timer);
         popup?.close();
-        resolve(account);
       } catch {
-        if ((popup && popup.closed) || Date.now() - started > 10 * 60_000) {
-          clearInterval(timer);
-          reject(new ExtensionError("login", "Instagram login was closed before you finished logging in."));
-        }
+        // Already gone.
       }
-    }, 2500);
+      fn();
+    };
+    const timer = setInterval(async () => {
+      const closed = !popup || popup.closed;
+      try {
+        const value = await poll(closed);
+        if (value !== undefined) finish(() => resolve(value));
+        else if (closed || Date.now() - started > 10 * 60_000) finish(() => reject(onClosed(null)));
+      } catch (error) {
+        if (closed || Date.now() - started > 10 * 60_000) finish(() => reject(onClosed(error)));
+      }
+    }, every);
+    igWindow = { popup, stop: () => finish(() => reject(new ExtensionError("closed", "The Instagram window was closed."))) };
   });
 }
 
 /**
- * Opens instagram.com in a small window so the user can switch to another
- * of their accounts (profile menu → Switch accounts). Resolves with the
- * account logged in once it changes, or when the window is closed.
+ * Opens Instagram's own login page in Keeper's Instagram window and resolves once
+ * the extension sees a logged-in account (or rejects if the window is closed first).
+ * Keeper never sees the password: it's typed into instagram.com.
+ */
+export function logInToInstagram(): Promise<InstagramAccount> {
+  const popup = openInstagramWindow("https://www.instagram.com/accounts/login/");
+  return watchWindow(
+    popup,
+    2500,
+    () => instagramAccount(),
+    () => new ExtensionError("login", "Instagram login was closed before you finished logging in."),
+  );
+}
+
+/**
+ * Opens instagram.com in Keeper's Instagram window so the user can switch to another
+ * of their accounts (profile menu → Switch accounts). Resolves with the account
+ * logged in once it changes, or when the window is closed.
  */
 export function switchInstagramAccount(current: InstagramAccount): Promise<InstagramAccount> {
-  const width = 460;
-  const height = 720;
-  const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
-  const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-  const popup = window.open("https://www.instagram.com/", "keeper-instagram-switch", `popup,width=${width},height=${height},left=${left},top=${top}`);
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const timer = setInterval(async () => {
-      const closed = !popup || popup.closed;
-      try {
-        const account = await instagramAccount();
-        if (account.userId !== current.userId || closed) {
-          clearInterval(timer);
-          popup?.close();
-          resolve(account);
-        }
-      } catch (error) {
-        // Logged out part-way through switching: wait unless the window's gone.
-        if (closed || Date.now() - started > 10 * 60_000) {
-          clearInterval(timer);
-          reject(error);
-        }
-      }
-    }, 2000);
-  });
+  const popup = openInstagramWindow("https://www.instagram.com/");
+  return watchWindow(
+    popup,
+    2000,
+    async (closed) => {
+      const account = await instagramAccount();
+      return account.userId !== current.userId || closed ? account : undefined;
+    },
+    (error) => error ?? new ExtensionError("closed", "The Instagram window was closed."),
+  );
 }
 
 /** The account's collection names and ids (from the list, or the Saved page of `username`). */

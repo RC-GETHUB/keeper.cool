@@ -1,8 +1,19 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
-import { useState } from "react";
-import { controlPush, ExtensionError, readInstagram, startPush, switchInstagramAccount, type ExtensionState, type JobSummary, type ReadProgress } from "@/lib/extension";
+import { useEffect, useState } from "react";
+import {
+  closeInstagramWindow,
+  controlPush,
+  ExtensionError,
+  readInstagram,
+  showInstagramWindow,
+  startPush,
+  switchInstagramAccount,
+  type ExtensionState,
+  type JobSummary,
+  type ReadProgress,
+} from "@/lib/extension";
 import { fromInstagramRead, type InstagramRead } from "@/lib/instagram-read";
 import { identityOf, sameIdentity } from "@/lib/libraries";
 import { mergeImport } from "@/lib/library/ops";
@@ -23,6 +34,8 @@ type Stage =
   | { stage: "checking"; progress: ReadProgress | null }
   | { stage: "plan"; read: InstagramRead; plan: PushPlan; copy: boolean }
   | { stage: "starting" }
+  /** Waiting for the user to switch accounts in the Instagram window. */
+  | { stage: "switching"; to: string }
   | { stage: "error"; message: string };
 
 const ACTIVE = new Set(["running", "waiting", "paused", "blocked"]);
@@ -36,6 +49,8 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
   const [consent, setConsent] = useState(false);
   const [copyConsent, setCopyConsent] = useState(false);
   const [startedId, setStartedId] = useState<string | null>(null);
+  // Closing this dialog closes its Instagram window too.
+  useEffect(() => () => closeInstagramWindow(), []);
   const job = extension.job;
   // Follow a push that's under way, or the one just started here, never an older finished one.
   const showJob = job && (ACTIVE.has(job.status) || job.id === startedId) ? job : null;
@@ -136,6 +151,19 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
               </button>
             </div>
           </div>
+        ) : stage.stage === "switching" ? (
+          <div className="space-y-2 py-2 text-sm" role="status">
+            <p className="flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin text-accent" /> Waiting for you to switch to {stage.to}…
+            </p>
+            <p className="text-xs text-neutral-500">
+              In the Instagram window, open your profile menu, choose <strong>Switch accounts</strong> and pick {stage.to}. Keeper
+              notices straight away and closes the window.
+            </p>
+            <button type="button" onClick={showInstagramWindow} className={`${ghostButton} -ml-3`}>
+              Show the Instagram window
+            </button>
+          </div>
         ) : stage.stage === "checking" || stage.stage === "starting" ? (
           <p className="flex items-center gap-2 py-6 text-sm" role="status">
             <Loader2 className="size-4 animate-spin text-accent" />
@@ -156,8 +184,9 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
             copyConsent={copyConsent}
             onCopyConsent={setCopyConsent}
             onStart={() => start(stage.read, stage.plan)}
-            onSwitch={async () => {
+            onSwitch={async (to) => {
               setCopyConsent(false);
+              setStage({ stage: "switching", to });
               try {
                 await switchInstagramAccount(stage.read.account);
               } catch {
@@ -191,7 +220,7 @@ function PlanView({
   copyConsent: boolean;
   onCopyConsent: (v: boolean) => void;
   onStart: () => void;
-  onSwitch: () => void;
+  onSwitch: (to: string) => void;
   onClose: () => void;
 }) {
   const nothing = plan.steps.length === 0;
@@ -211,7 +240,7 @@ function PlanView({
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             This is {owner}&apos;s library, but Instagram in this browser is on {handle(read.account)}.
           </p>
-          <button type="button" onClick={onSwitch} className={`${primaryButton} w-full justify-center py-2`}>
+          <button type="button" onClick={() => onSwitch(owner!)} className={`${primaryButton} w-full justify-center py-2`}>
             Switch Instagram to {owner}
           </button>
           <details className="text-xs">

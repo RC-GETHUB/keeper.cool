@@ -7,6 +7,8 @@ import {
   instagramAccount,
   logInToInstagram,
   readInstagram,
+  closeInstagramWindow,
+  showInstagramWindow,
   switchInstagramAccount,
   type ExtensionState,
   type UsernameHint,
@@ -201,6 +203,13 @@ export function ImportDialog({
     }
   };
 
+  // Closing Keeper's dialog closes its Instagram window too, so none are left behind.
+  useEffect(() => () => closeInstagramWindow(), []);
+  const close = () => {
+    closeInstagramWindow();
+    onClose();
+  };
+
   const started = useRef(false);
   useEffect(() => {
     if (autoStart && hasExtension && !started.current) {
@@ -241,7 +250,7 @@ export function ImportDialog({
   return (
     <div
       className={`fixed inset-0 z-40 items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4 ${hidden ? "hidden" : "flex"}`}
-      onClick={onClose}
+      onClick={close}
     >
       <div
         role="dialog"
@@ -254,7 +263,7 @@ export function ImportDialog({
           <h2 id="import-title" className="text-lg font-semibold">
             Import your Instagram saves
           </h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
+          <button type="button" onClick={close} className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
@@ -307,7 +316,7 @@ export function ImportDialog({
               )}
             {status.source === "instagram" && status.result.warnings.length > 0 && <DiagnosePanel hint={hint} />}
             <div className="flex justify-end">
-              <button type="button" onClick={onClose} className={primaryButton}>
+              <button type="button" onClick={close} className={primaryButton}>
                 Done
               </button>
             </div>
@@ -336,9 +345,14 @@ export function ImportDialog({
                         : (status.message ?? "You're not logged into Instagram in this browser yet.")}
                     </p>
                     {status.waiting ? (
-                      <p className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400" role="status">
-                        <Loader2 className="size-4 animate-spin text-accent" /> Waiting for Instagram…
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400" role="status">
+                          <Loader2 className="size-4 animate-spin text-accent" /> Waiting for Instagram…
+                        </p>
+                        <button type="button" onClick={showInstagramWindow} className={`${ghostButton} -mr-3`}>
+                          Show the Instagram window
+                        </button>
+                      </div>
                     ) : (
                       <button type="button" onClick={logIn} className={`${primaryButton} w-full justify-center py-2`}>
                         Log in to Instagram
@@ -368,7 +382,7 @@ export function ImportDialog({
                         {status.added > 0 ? `Added ${plural(status.added, "new save")}. They're at the top.` : "No new saves. You're up to date."}
                       </p>
                       <div className="flex justify-end">
-                        <button type="button" onClick={onClose} className={primaryButton}>
+                        <button type="button" onClick={close} className={primaryButton}>
                           Done
                         </button>
                       </div>
@@ -493,7 +507,7 @@ export function ImportDialog({
               nothing is uploaded.
             </p>
             <div className="flex justify-end">
-              <button type="button" onClick={onClose} className={ghostButton}>
+              <button type="button" onClick={close} className={ghostButton}>
                 Cancel
               </button>
             </div>
@@ -570,8 +584,11 @@ function ConfirmAccount({
         </p>
         <p className="text-xs text-neutral-500">
           In the Instagram window, open your profile menu, choose <strong>Switch accounts</strong> and pick the account. Keeper
-          notices straight away. Or close the window when you&apos;re done.
+          notices straight away and closes the window.
         </p>
+        <button type="button" onClick={showInstagramWindow} className={`${ghostButton} -ml-3`}>
+          Show the Instagram window
+        </button>
       </div>
     );
   }
