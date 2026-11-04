@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "bench": "vitest bench --run",
-    "bench:ui": "node scripts/ui-bench.mjs"
+    "bench:ui": "node scripts/ui-bench.mjs",
+    "release": "node scripts/release.mjs",
+    "changelog": "node scripts/changelog.mjs"
   },
   "dependencies": {
     "fflate": "0.8.3",

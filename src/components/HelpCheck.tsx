@@ -6,7 +6,7 @@ import { DiagnosePanel } from "./DiagnosePanel";
 
 /** The extension's check, available any time from the Help page. */
 export function HelpCheck() {
-  const { status } = useExtension();
+  const { status, version } = useExtension();
   if (status === "checking") {
     return (
       <p className="flex items-center gap-2 text-neutral-500">
@@ -21,5 +21,10 @@ export function HelpCheck() {
       </p>
     );
   }
-  return <DiagnosePanel label="Run a check" />;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-neutral-500">Keeper extension {version} is installed in this browser.</p>
+      <DiagnosePanel label="Run a check" />
+    </div>
+  );
 }
