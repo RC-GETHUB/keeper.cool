@@ -94,10 +94,14 @@ Before every push: types, unit tests, and the extension test must pass.
 
 - **One version number for everything** (website + extension), e.g. 0.4.2. Make a
   new one with `npm run release -- 0.4.3 "what it's about"`, then
-  `git push origin main --tags`. That sets the version in `package.json` and
+  `git push origin main` (and `--tags` where allowed). That sets the version in `package.json` and
   `extension/manifest.json`, saves the extension build to `releases/`, tags it
   and updates CHANGELOG.md.
-- **Look at or restore an old version**: every version is a git tag (`v0.3.9` …).
+- **Look at or restore an old version**: CHANGELOG.md names each version's exact commit
+  (with a GitHub link). Versions are also git tags (`v0.3.9` …) in a local clone; the cloud
+  environment's git access refuses pushing tags (403), so the commit ids in CHANGELOG.md are
+  the reference — rebuild tags from them in a fresh clone with
+  `git tag -a v0.3.9 <commit> -m "Keeper 0.3.9"` if needed.
   - Old extension: `releases/keeper-extension-<version>.zip` (unzip, Load unpacked).
   - Old website: in Vercel → project keeper-cool → Deployments, pick the deployment
     of that version's commit → "Promote to Production" (instant rollback). Or in

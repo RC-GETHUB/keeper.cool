@@ -30,4 +30,4 @@ run("git", "tag", "-a", `v${version}`, "-m", `Keeper ${version}: ${label}`);
 run("node", "scripts/changelog.mjs");
 run("git", "add", "CHANGELOG.md");
 run("git", "commit", "-q", "-m", `Changelog for ${version}`);
-console.log(`\nKeeper ${version} is tagged. Push it with: git push origin main --tags`);
+console.log(`\nKeeper ${version} is tagged. Push it with: git push origin main (and --tags where allowed)`);
