@@ -4,6 +4,15 @@ Every version of Keeper (website + extension), newest first. Each one names the 
 it was built from (open it on GitHub to see the code as it was), and its extension build is
 saved in `releases/keeper-extension-<version>.zip`. How to go back to one: docs/HANDBOOK.md.
 
+## 0.4.3 — 2026-11-04 — Clickable mockup of the simpler design (/mockup)
+
+Code: [`d748c45`](https://github.com/RC-GETHUB/keeper.cool/tree/d748c45d545633f1dcd0f2acdd071161d64a7a60) · extension build: `releases/keeper-extension-0.4.3.zip`
+
+- Keeper 0.4.3: Clickable mockup of the simpler design (/mockup)
+- Clickable mockup of the simpler design, at /mockup
+- Changelog names each version's exact commit (tags can't be pushed from here)
+- Changelog for 0.4.2
+
 ## 0.4.2 — 2026-11-04 — One Instagram account at a time; versions, saved builds and handbook
 
 Code: [`c2c26d0`](https://github.com/RC-GETHUB/keeper.cool/tree/c2c26d0b3b48de8d682f2a0361f856ef3fad6668) · extension build: `releases/keeper-extension-0.4.2.zip`
