@@ -24,6 +24,8 @@ interface Props {
   extension: ExtensionState;
   /** Start importing from Instagram straight away (the welcome screen's button). */
   autoStart?: boolean;
+  /** With autoStart: go straight to switching Instagram accounts ("Add another account"). */
+  autoSwitch?: boolean;
   onClose: () => void;
   /** Merges the import into the right account's library (which may mean switching to it). */
   onImport: (result: ImportResult) => MergeSummary | Promise<MergeSummary>;
@@ -71,6 +73,7 @@ type Status =
 export function ImportDialog({
   extension,
   autoStart,
+  autoSwitch,
   onClose,
   onImport,
   onThumbs,
@@ -117,10 +120,12 @@ export function ImportDialog({
   };
 
   /** Several accounts can be signed in on instagram.com: say which one is about to be read first. */
-  const checkAccount = async () => {
+  const checkAccount = async (thenSwitch = false) => {
     setStatus({ state: "confirm", account: null });
     try {
-      setStatus({ state: "confirm", account: await instagramAccount() });
+      const account = await instagramAccount();
+      setStatus({ state: "confirm", account });
+      if (thenSwitch) switchAccount(account);
     } catch (e) {
       failed(e);
     }
@@ -200,7 +205,7 @@ export function ImportDialog({
   useEffect(() => {
     if (autoStart && hasExtension && !started.current) {
       started.current = true;
-      checkAccount();
+      checkAccount(Boolean(autoSwitch));
     }
   });
 
@@ -370,7 +375,7 @@ export function ImportDialog({
                     </div>
                   )
                 ) : (
-                  <button type="button" onClick={checkAccount} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
+                  <button type="button" onClick={() => checkAccount()} disabled={busy} className={`${primaryButton} w-full justify-center py-2`}>
                     Import from Instagram
                   </button>
                 )}

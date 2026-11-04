@@ -385,11 +385,9 @@ async function run() {
     check((await page.getByTestId("count-Recipes").textContent()) === "16", "the new save went into its collection too");
 
     console.log("A second Instagram account:");
-    await page.getByTestId("header-import").click();
-    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
-    await page.getByTestId("import-account").waitFor({ timeout: 30_000 });
-    // Switch to the other account in Instagram's own window: Keeper notices without being told.
-    const [switchWindow] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Use a different account" }).click()]);
+    // "Add another account" goes straight to switching accounts in Instagram's own window.
+    await page.getByTestId("account-menu").click();
+    const [switchWindow] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Add another account" }).click()]);
     check(switchWindow.url().startsWith("https://www.instagram.com/"), "opens Instagram in a pop-up to switch accounts");
     await context.clearCookies();
     await logIn(OTHER_ID);

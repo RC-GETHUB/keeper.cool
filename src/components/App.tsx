@@ -96,6 +96,7 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
   const [autoImport, setAutoImport] = useState(false);
+  const [autoSwitch, setAutoSwitch] = useState(false);
   // An import keeps running (and its window stays mounted, hidden) when the window is closed.
   const [importRunning, setImportRunning] = useState(false);
   // Keeps the window (and its summary) around after an import that ran while it was closed.
@@ -404,6 +405,17 @@ export function App() {
     return switchLibrary(id, "Added a new account. Import its saves to fill it.");
   };
 
+  /**
+   * "Add another account": with the extension, switch Instagram to the other account and import it
+   * (Keeper then makes its library); without, start an empty library for an export file.
+   */
+  const addAccount = () => {
+    if (extension.status !== "ready") return void addLibrary();
+    setAutoSwitch(true);
+    setAutoImport(true);
+    setImportOpen(true);
+  };
+
   const removeLibrary = (id: string) => {
     const entry = index.entries.find((e) => e.id === id);
     if (!entry || id === index.active) return;
@@ -605,7 +617,7 @@ export function App() {
             keeper<span className="text-accent">.cool</span>
           </span>
         </div>
-        <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={() => addLibrary()} onRemove={removeLibrary} />
+        <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={addAccount} onRemove={removeLibrary} />
         {/* On a phone the search gets its own row under the header. */}
         <label className="relative order-last flex w-full items-center sm:order-none sm:ml-auto sm:w-auto sm:max-w-md sm:min-w-0 sm:flex-1">
           <Search className="pointer-events-none absolute left-2.5 size-4 text-neutral-400" />
@@ -636,9 +648,10 @@ export function App() {
           data-testid="header-import"
         >
           {importRunning ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}{" "}
-          <span className="hidden sm:inline">{importRunning ? "Importing…" : "Import from Instagram"}</span>
+          <span className="hidden lg:inline">{importRunning ? "Importing…" : "Import from Instagram"}</span>
+          <span className="hidden sm:inline lg:hidden">{importRunning ? "Importing…" : "Import"}</span>
         </button>
-        <div className="hidden lg:block">
+        <div className="max-sm:hidden">
           {extension.job && ["running", "waiting", "paused", "blocked"].includes(extension.job.status) ? (
             <button type="button" onClick={() => setPushOpen(true)} className={primaryButton} title="Export progress" data-testid="header-export">
               {extension.job.status === "blocked" || extension.job.status === "paused" ? (
@@ -646,7 +659,7 @@ export function App() {
               ) : (
                 <RefreshCw className="size-4 animate-spin" />
               )}
-              Exporting {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
+              <span className="hidden lg:inline">Exporting</span> {fmtCount.format(extension.job.done)}/{fmtCount.format(extension.job.total)}
             </button>
           ) : (
             // Lights up once an import has finished: there's nothing to send back before that.
@@ -658,7 +671,9 @@ export function App() {
               title={importDone ? "Put your Keeper order on Instagram" : "Import from Instagram first"}
               data-testid="header-export"
             >
-              <RefreshCw className="size-4 transition-transform duration-700 group-enabled:group-hover:rotate-180" /> Export to Instagram
+              <RefreshCw className="size-4 transition-transform duration-700 group-enabled:group-hover:rotate-180" />
+              <span className="hidden lg:inline">Export to Instagram</span>
+              <span className="lg:hidden">Export</span>
             </button>
           )}
         </div>
@@ -985,9 +1000,11 @@ export function App() {
           onQuickCheck={quickCheck}
           extension={extension}
           autoStart={autoImport}
+          autoSwitch={autoSwitch}
           onClose={() => {
             setImportOpen(false);
             setAutoImport(false);
+            setAutoSwitch(false);
             // A running import carries on out of sight; a finished one can go.
             if (!importRunning) setImportAlive(false);
           }}
