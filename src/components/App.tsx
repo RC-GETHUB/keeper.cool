@@ -51,6 +51,7 @@ import type { MergeSummary } from "@/lib/library/ops";
 import { AccountMenu } from "./AccountMenu";
 import { CollectionsFix } from "./CollectionsFix";
 import { DiagnosePanel } from "./DiagnosePanel";
+import { multiAccount } from "@/lib/site";
 import { ExtensionGuide } from "./ExtensionGuide";
 import { BookmarkList } from "./BookmarkList";
 import { ImportDialog } from "./ImportDialog";
@@ -97,6 +98,8 @@ export function App() {
   const [pushOpen, setPushOpen] = useState(false);
   const [autoImport, setAutoImport] = useState(false);
   const [autoSwitch, setAutoSwitch] = useState(false);
+  // One Instagram account for now; several stay hidden (see multiAccount).
+  const [multi] = useState(multiAccount);
   // An import keeps running (and its window stays mounted, hidden) when the window is closed.
   const [importRunning, setImportRunning] = useState(false);
   // Keeps the window (and its summary) around after an import that ran while it was closed.
@@ -617,7 +620,7 @@ export function App() {
             keeper<span className="text-accent">.cool</span>
           </span>
         </div>
-        <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={addAccount} onRemove={removeLibrary} />
+        <AccountMenu index={accounts!} onSwitch={(id) => switchLibrary(id)} onAdd={addAccount} onRemove={removeLibrary} multi={multi} />
         {/* On a phone the search gets its own row under the header. */}
         <label className="relative order-last flex w-full items-center sm:order-none sm:ml-auto sm:w-auto sm:max-w-md sm:min-w-0 sm:flex-1">
           <Search className="pointer-events-none absolute left-2.5 size-4 text-neutral-400" />
@@ -825,7 +828,7 @@ export function App() {
                         <FolderMinus className="size-4" /> <span className="hidden sm:inline">Remove from collection</span>
                       </button>
                     )}
-                    {index.entries.length > 1 && (
+                    {multi && index.entries.length > 1 && (
                       <div className="relative">
                         <button type="button" className={ghostButton} onClick={() => setCopyMenu(true)} title="Copy to another Instagram account">
                           <Copy className="size-4" /> <span className="hidden sm:inline">Copy to…</span>
@@ -1001,6 +1004,7 @@ export function App() {
           extension={extension}
           autoStart={autoImport}
           autoSwitch={autoSwitch}
+          owner={multi ? null : (lib.instagram ?? null)}
           onClose={() => {
             setImportOpen(false);
             setAutoImport(false);
@@ -1024,7 +1028,7 @@ export function App() {
           }}
         />
       )}
-      {pushOpen && <PushDialog lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}
+      {pushOpen && <PushDialog multi={multi} lib={lib} extension={extension} onMerge={(next) => commit(next)} onClose={() => setPushOpen(false)} />}
       {confirming && <ConfirmDialog {...confirming} onClose={() => setConfirming(null)} />}
       {choice && <ChoiceDialog {...choice} onClose={() => setChoice(null)} />}
 

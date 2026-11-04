@@ -27,6 +27,8 @@ interface Props {
   /** Saves new Instagram saves found while checking into the library. */
   onMerge: (lib: Library) => void;
   onClose: () => void;
+  /** Several Instagram accounts (hidden for now): allows copying a whole library into another account. */
+  multi?: boolean;
 }
 
 type Stage =
@@ -44,7 +46,7 @@ function handle(account: { username: string | null; userId: string }) {
   return account.username ? `@${account.username}` : `account ${account.userId}`;
 }
 
-export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
+export function PushDialog({ lib, extension, onMerge, onClose, multi = false }: Props) {
   const [stage, setStage] = useState<Stage>({ stage: "intro" });
   const [consent, setConsent] = useState(false);
   const [copyConsent, setCopyConsent] = useState(false);
@@ -183,6 +185,7 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
             copy={stage.copy}
             copyConsent={copyConsent}
             onCopyConsent={setCopyConsent}
+            multi={multi}
             onStart={() => start(stage.read, stage.plan)}
             onSwitch={async (to) => {
               setCopyConsent(false);
@@ -212,7 +215,9 @@ function PlanView({
   onStart,
   onSwitch,
   onClose,
+  multi,
 }: {
+  multi: boolean;
   lib: Library;
   read: InstagramRead;
   plan: PushPlan;
@@ -243,12 +248,13 @@ function PlanView({
           <button type="button" onClick={() => onSwitch(owner!)} className={`${primaryButton} w-full justify-center py-2`}>
             Switch Instagram to {owner}
           </button>
+          {multi && (
           <details className="text-xs">
             <summary className="cursor-pointer">Or copy this whole library into {handle(read.account)}…</summary>
             <div className="mt-2 space-y-2">
               <p>
                 That saves all {fmtCount.format(plan.steps.length)} posts on {handle(read.account)}, about one a minute (
-                {formatDuration(estimateDuration(plan))}). To copy just a few posts, select them and use <b>Copy to</b> instead.
+                {formatDuration(estimateDuration(plan))}).
               </p>
               <label className="flex items-start gap-2">
                 <input type="checkbox" checked={copyConsent} onChange={(e) => onCopyConsent(e.target.checked)} className="mt-0.5 size-4 accent-accent" />
@@ -258,6 +264,7 @@ function PlanView({
               </label>
             </div>
           </details>
+          )}
         </div>
       )}
 

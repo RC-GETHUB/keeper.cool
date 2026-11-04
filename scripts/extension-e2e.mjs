@@ -384,6 +384,26 @@ async function run() {
     await page.getByRole("button", { name: "Done" }).click();
     check((await page.getByTestId("count-Recipes").textContent()) === "16", "the new save went into its collection too");
 
+    console.log("One account at a time:");
+    check((await page.getByRole("button", { name: /Account:/ }).count()) === 0, "no account switcher while there's one account");
+    await context.clearCookies();
+    await logIn(OTHER_ID);
+    await page.getByTestId("header-import").click();
+    await page.getByRole("dialog").getByRole("button", { name: "Import from Instagram" }).click();
+    await page.getByTestId("wrong-account-import").waitFor({ timeout: 30_000 });
+    check(
+      (await page.getByRole("button", { name: /Start import|Read everything again|Check for new saves/ }).count()) === 0 &&
+        (await page.getByRole("button", { name: "Switch Instagram to @test.account" }).isVisible()),
+      "importing while Instagram is on another account offers to switch back instead",
+    );
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).first().click();
+    await context.clearCookies();
+    await logIn(USER_ID);
+    // Several accounts are built but hidden for now; the rest of these checks turn them on.
+    await page.evaluate(() => localStorage.setItem("keeper:multi-account", "1"));
+    await page.reload();
+    await page.getByTestId("view-count").waitFor({ timeout: 30_000 }).catch(() => {});
+
     console.log("A second Instagram account:");
     // "Add another account" goes straight to switching accounts in Instagram's own window.
     await page.getByTestId("account-menu").click();

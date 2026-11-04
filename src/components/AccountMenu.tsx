@@ -10,12 +10,26 @@ interface Props {
   onSwitch: (id: string) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  /** Several Instagram accounts (hidden for now: see multiAccount). */
+  multi: boolean;
 }
 
 /** Shows whose library is open and switches between Instagram accounts. */
-export function AccountMenu({ index, onSwitch, onAdd, onRemove }: Props) {
+export function AccountMenu({ index, onSwitch, onAdd, onRemove, multi }: Props) {
   const [open, setOpen] = useState(false);
   const active = index.entries.find((e) => e.id === index.active) ?? index.entries[0];
+  // One account: just say whose library this is.
+  if (!multi && index.entries.length <= 1) {
+    return (
+      <p
+        className="flex max-w-44 min-w-0 items-center gap-1 px-2 py-1 text-sm font-medium text-neutral-700 dark:text-neutral-300"
+        data-testid="account-menu"
+      >
+        <UserRound className="size-4 shrink-0 text-neutral-400" />
+        <span className="truncate">{entryLabel(active)}</span>
+      </p>
+    );
+  }
   return (
     <div className="relative min-w-0">
       <button
@@ -61,16 +75,18 @@ export function AccountMenu({ index, onSwitch, onAdd, onRemove }: Props) {
             )}
           </div>
         ))}
-        <button
-          type="button"
-          className={`${menuItem} mt-1 border-t border-neutral-200 pt-2 dark:border-neutral-800`}
-          onClick={() => {
-            setOpen(false);
-            onAdd();
-          }}
-        >
-          <Plus className="size-4" /> Add another account
-        </button>
+        {multi && (
+          <button
+            type="button"
+            className={`${menuItem} mt-1 border-t border-neutral-200 pt-2 dark:border-neutral-800`}
+            onClick={() => {
+              setOpen(false);
+              onAdd();
+            }}
+          >
+            <Plus className="size-4" /> Add another account
+          </button>
+        )}
       </Popover>
     </div>
   );

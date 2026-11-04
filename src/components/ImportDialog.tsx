@@ -28,6 +28,8 @@ interface Props {
   autoStart?: boolean;
   /** With autoStart: go straight to switching Instagram accounts ("Add another account"). */
   autoSwitch?: boolean;
+  /** One account at a time: the account this library belongs to; importing another is offered as a switch back. */
+  owner?: InstagramAccount | null;
   onClose: () => void;
   /** Merges the import into the right account's library (which may mean switching to it). */
   onImport: (result: ImportResult) => MergeSummary | Promise<MergeSummary>;
@@ -76,6 +78,7 @@ export function ImportDialog({
   extension,
   autoStart,
   autoSwitch,
+  owner,
   onClose,
   onImport,
   onThumbs,
@@ -368,6 +371,7 @@ export function ImportDialog({
                     known={status.account && hint?.userId === status.account.userId ? hint.username : null}
                     onStart={(account, username) => fromInstagram(username ? { userId: account.userId, username } : null)}
                     onSwitch={switchAccount}
+                    owner={owner && status.account && owner.userId !== status.account.userId ? owner : null}
                     // A library of this very account already exists: checking for new saves takes seconds.
                     quick={status.account && onQuickCheck && libraryCount > 0 && hint?.userId === status.account.userId ? { count: libraryCount, run: quickCheck } : null}
                   />
@@ -558,6 +562,7 @@ function ConfirmAccount({
   onStart,
   onSwitch,
   quick,
+  owner,
 }: {
   account: InstagramAccount | null;
   switching: boolean;
@@ -567,6 +572,8 @@ function ConfirmAccount({
   onSwitch: (account: InstagramAccount) => void;
   /** Offered when this account was imported before: just the new saves, in seconds. */
   quick: { count: number; run: () => void } | null;
+  /** Set when Keeper organizes another account than the one Instagram is on: switch back instead of importing. */
+  owner: InstagramAccount | null;
 }) {
   const [typed, setTyped] = useState(known ?? "");
   if (!account) {
@@ -593,6 +600,20 @@ function ConfirmAccount({
     );
   }
   const username = account.username ?? (cleanUsername(typed) || null);
+  if (owner) {
+    const ownerName = owner.username ? `@${owner.username}` : "your account";
+    return (
+      <div className="space-y-3 text-sm" data-testid="wrong-account-import">
+        <p>
+          Keeper is organizing <strong>{ownerName}</strong>, but Instagram in this browser is on{" "}
+          <strong>{account.username ? `@${account.username}` : "another account"}</strong>.
+        </p>
+        <button type="button" onClick={() => onSwitch(account)} className={`${primaryButton} w-full justify-center py-2`}>
+          Switch Instagram to {ownerName}
+        </button>
+      </div>
+    );
+  }
   return (
     <form
       className="space-y-3 text-sm"
