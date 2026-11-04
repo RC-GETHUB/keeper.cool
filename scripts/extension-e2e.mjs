@@ -449,12 +449,23 @@ async function run() {
     );
     check(JSON.stringify(top) === JSON.stringify(copied), "the copies sit on top of @test.account's library");
 
-    await context.clearCookies();
-    await logIn(USER_ID);
+    // Instagram is still on the second account: Export says so, and offers to switch rather than copy everything.
     await page.getByTestId("header-export").click();
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByText(/2 new to this account/).waitFor({ timeout: 30_000 });
+    await page.getByTestId("wrong-account").waitFor({ timeout: 30_000 });
+    check(
+      (await page.getByRole("button", { name: "Start export" }).count()) === 0,
+      "exporting a library while Instagram is on another account asks to switch, and can't start by accident",
+    );
+    const [switchBack] = await Promise.all([
+      context.waitForEvent("page"),
+      page.getByRole("button", { name: "Switch Instagram to @test.account" }).click(),
+    ]);
+    await context.clearCookies();
+    await logIn(USER_ID);
+    await page.getByText(/2 new to this account/).waitFor({ timeout: 60_000 });
+    check(switchBack.isClosed(), "after switching, Export checks again and plans for the right account");
     await page.getByRole("button", { name: "Start export" }).click();
     await page.getByText("Finished").waitFor({ timeout: 60_000 });
     if (!copied.every((c) => ig.saved.includes(c))) {

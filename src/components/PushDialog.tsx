@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
-import { controlPush, ExtensionError, readInstagram, startPush, type ExtensionState, type JobSummary, type ReadProgress } from "@/lib/extension";
+import { controlPush, ExtensionError, readInstagram, startPush, switchInstagramAccount, type ExtensionState, type JobSummary, type ReadProgress } from "@/lib/extension";
 import { fromInstagramRead, type InstagramRead } from "@/lib/instagram-read";
 import { identityOf, sameIdentity } from "@/lib/libraries";
 import { mergeImport } from "@/lib/library/ops";
@@ -156,6 +156,15 @@ export function PushDialog({ lib, extension, onMerge, onClose }: Props) {
             copyConsent={copyConsent}
             onCopyConsent={setCopyConsent}
             onStart={() => start(stage.read, stage.plan)}
+            onSwitch={async () => {
+              setCopyConsent(false);
+              try {
+                await switchInstagramAccount(stage.read.account);
+              } catch {
+                // Closed or logged out: checking again says where things stand.
+              }
+              check();
+            }}
             onClose={onClose}
           />
         )}
@@ -172,6 +181,7 @@ function PlanView({
   copyConsent,
   onCopyConsent,
   onStart,
+  onSwitch,
   onClose,
 }: {
   lib: Library;
@@ -181,9 +191,13 @@ function PlanView({
   copyConsent: boolean;
   onCopyConsent: (v: boolean) => void;
   onStart: () => void;
+  onSwitch: () => void;
   onClose: () => void;
 }) {
   const nothing = plan.steps.length === 0;
+  // This library belongs to another Instagram account than the one logged in: the usual fix is to switch.
+  const owner = lib.instagram ? handle(lib.instagram) : lib.exportUsername ? `@${lib.exportUsername}` : null;
+  const wrongAccount = copy && owner !== null;
   const saves = plan.steps.filter((s) => s.action === "save").length;
   return (
     <div className="space-y-4 text-sm">
@@ -191,16 +205,41 @@ function PlanView({
         Instagram account: <b className="text-neutral-900 dark:text-neutral-100">{handle(read.account)}</b>
       </p>
 
-      {copy && (
+      {wrongAccount && (
+        <div className="space-y-3 rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200" data-testid="wrong-account">
+          <p className="flex items-start gap-2 font-medium">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            This is {owner}&apos;s library, but Instagram in this browser is on {handle(read.account)}.
+          </p>
+          <button type="button" onClick={onSwitch} className={`${primaryButton} w-full justify-center py-2`}>
+            Switch Instagram to {owner}
+          </button>
+          <details className="text-xs">
+            <summary className="cursor-pointer">Or copy this whole library into {handle(read.account)}…</summary>
+            <div className="mt-2 space-y-2">
+              <p>
+                That saves all {fmtCount.format(plan.steps.length)} posts on {handle(read.account)}, about one a minute (
+                {formatDuration(estimateDuration(plan))}). To copy just a few posts, select them and use <b>Copy to</b> instead.
+              </p>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" checked={copyConsent} onChange={(e) => onCopyConsent(e.target.checked)} className="mt-0.5 size-4 accent-accent" />
+                <span>
+                  Yes, save all {fmtCount.format(plan.steps.length)} posts into {handle(read.account)}.
+                </span>
+              </label>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {copy && !wrongAccount && (
         <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
           <p className="flex items-start gap-2 font-medium">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            {lib.instagram || lib.exportUsername
-              ? `This is ${lib.instagram ? handle(lib.instagram) : `@${lib.exportUsername}`}'s library, but Instagram is logged into ${handle(read.account)}.`
-              : `Most of this library isn't saved on ${handle(read.account)}.`}
+            Most of this library isn&apos;t saved on {handle(read.account)}.
           </p>
           <p>
-            To export this library, switch Instagram to its account first. Or carry on and Keeper will save this whole library into{" "}
+            If it belongs to another account, switch Instagram to it first. Or carry on and Keeper will save this whole library into{" "}
             {handle(read.account)} in your order (posts from private accounts it can&apos;t see are skipped).
           </p>
           <label className="flex items-start gap-2">
@@ -210,7 +249,7 @@ function PlanView({
         </div>
       )}
 
-      {nothing ? (
+      {wrongAccount && !copyConsent ? null : nothing ? (
         <p className="flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200">
           <CheckCircle2 className="size-4" /> Instagram already matches your order. Nothing to do.
         </p>
@@ -238,7 +277,7 @@ function PlanView({
         <button type="button" onClick={onClose} className={ghostButton}>
           {nothing ? "Close" : "Not now"}
         </button>
-        {!nothing && (
+        {!nothing && !(wrongAccount && !copyConsent) && (
           <button type="button" onClick={onStart} disabled={copy && !copyConsent} className={primaryButton}>
             <RefreshCw className="size-4" /> Start export
           </button>
