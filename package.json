@@ -1,6 +1,6 @@
 {
   "name": "keeper-cool",
-  "version": "0.1.0",
+  "version": "0.4.2",
   "private": true,
   "scripts": {
     "dev": "node scripts/pack-extension.mjs && next dev -p 3000",
