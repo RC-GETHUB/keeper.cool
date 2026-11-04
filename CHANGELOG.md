@@ -4,6 +4,13 @@ Every version of Keeper (website + extension), newest first. Each one is a git t
 code can be looked at or restored exactly as it was, and its extension build is saved in
 `releases/keeper-extension-<version>.zip`. How to go back to one: see docs/HANDBOOK.md.
 
+## 0.4.2 — 2026-11-04 — One Instagram account at a time; versions, saved builds and handbook
+
+- Keeper 0.4.2: One Instagram account at a time; versions, saved builds and handbook
+- Help page: read the version without a build warning
+- Versions, saved builds and a handbook, so nothing is lost
+- One Instagram account at a time
+
 ## 0.4.1 — 2026-11-04
 
 - One Instagram window, never left behind (extension 0.4.1)
