@@ -127,10 +127,12 @@ Done recently (see CHANGELOG): import with collections in the background (0.4.0)
 one Instagram window (0.4.1), one-account focus (0.4.2).
 
 Next, in order:
-1. **Clickable mockup** of the simpler design ("a 10-year-old with 3 accounts"):
-   account picker with profile photos, Keeper switches Instagram accounts for you,
-   three big buttons (Get my saves / Organize / Put back on Instagram), one status
-   line, big Undo, extras under "More". Try it, then build it in.
+1. **Clickable mockup** of the simpler design ("a 10-year-old with 3 accounts") is at
+   https://keeper-cool.vercel.app/mockup (code: `src/app/mockup/`, pretend data only):
+   account picker with profile photos, guided Instagram account switch, three big
+   buttons (Get my saves / Organize / Put back on Instagram), one status line, big
+   Undo, extras under "More". Waiting on Ryan's feedback, then build it into the app
+   (bring back several accounts, `multiAccount()`, in this simpler form).
 2. Consistency pass: every dialog the same layout and words.
 3. Ryan's one-post Export test on @ryancramer (Export only proven on the fake Instagram).
 4. Chrome store approval → "Add to Chrome" link; upload the current version.

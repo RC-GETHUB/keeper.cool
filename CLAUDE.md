@@ -8,6 +8,7 @@ Ground rules:
 - The owner isn't a developer: plain words, exact clicks, ask for screenshots.
 - Keep the app simple and uniform; everything inside the app; say what's happening.
 - Never lose data or progress: run types, unit tests and `node scripts/extension-e2e.mjs`
-  before pushing; release with `npm run release -- <version> "<label>"` and push tags.
+  before pushing; release with `npm run release -- <version> "<label>"`, then push
+  (pushing tags is refused in the cloud environment; CHANGELOG.md records each version's commit).
 - Keep docs/HANDBOOK.md current when something changes.
 - Secrets never go in code, chat or commits.
