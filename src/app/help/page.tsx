@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { HelpCheck } from "@/components/HelpCheck";
 import { SUPPORT_EMAIL } from "@/lib/site";
-import { version } from "../../../package.json";
+import pkg from "../../../package.json";
 
 export const metadata: Metadata = {
   title: "Help",
@@ -121,7 +121,7 @@ export default function HelpPage() {
         <HelpCheck />
       </section>
       <p className="mt-10 text-xs text-neutral-500">
-        Keeper version {version}
+        Keeper version {pkg.version}
       </p>
       <p className="mt-2 text-xs text-neutral-500">Keeper is not affiliated with, endorsed by or sponsored by Instagram or Meta.</p>
     </main>
